@@ -1527,17 +1527,23 @@ def play_text():
     char_count = len(text)
     print(f"[TTS] Generating audio: {word_count} words, {char_count} chars")
 
-    # Limit to 300 words for full page audio (chunked endpoint handles longer pages)
-    if word_count > 300:
+    # Limit to 500 words for better page coverage (was 300)
+    # Longer timeout for larger texts
+    if word_count > 500:
         words = text.split()
-        text = ' '.join(words[:300])
-        print(f"[TTS] INFO: Text limited from {word_count} to 300 words (use chunked for longer)")
+        text = ' '.join(words[:500])
+        print(f"[TTS] INFO: Text limited from {word_count} to 500 words")
+        timeout = 45
+    elif word_count > 250:
+        timeout = 30
+    else:
+        timeout = 20
 
     try:
         start_time = time.time()
-        audio_path = generate_audio(text, voice, timeout=20)
+        audio_path = generate_audio(text, voice, timeout=timeout)
         gen_time = time.time() - start_time
-        print(f"[TTS] Generated in {gen_time:.2f}s")
+        print(f"[TTS] Generated in {gen_time:.2f}s ({word_count} words)")
 
         with open(audio_path, 'rb') as f:
             audio_data = f.read()

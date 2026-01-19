@@ -471,15 +471,9 @@ export class ReadingManager {
             return;
         }
 
-        const wordCount = this.state.pageText.split(' ').length;
-
-        // For pages with reasonable word count, use full audio (better word timing)
-        // For very long pages, use chunked audio (faster start)
-        if (wordCount <= 300) {
-            return this.playPageAudioFull();
-        } else {
-            return this.playPageAudioChunked();
-        }
+        // Always use full audio for accurate word timing
+        // Chunked audio breaks word-level synchronization
+        return this.playPageAudioFull();
     }
 
     async playPageAudioFull() {
@@ -493,12 +487,23 @@ export class ReadingManager {
         const resumeWordIndex = this.state.currentWordIndex;
         console.log('[PlayAudioFull] Resuming from word index:', resumeWordIndex);
 
+        // Limit words to match backend limit (500 words)
+        const MAX_WORDS = 500;
+        let textToRead = this.state.pageText;
+        let wordsToHighlight = this.state.words;
+
+        if (this.state.words.length > MAX_WORDS) {
+            console.log('[PlayAudioFull] Limiting from', this.state.words.length, 'to', MAX_WORDS, 'words');
+            wordsToHighlight = this.state.words.slice(0, MAX_WORDS);
+            textToRead = wordsToHighlight.map(w => w.text).join(' ');
+        }
+
         try {
             const res = await fetch('/play-text', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    text: this.state.pageText,
+                    text: textToRead,
                     voice: this.state.selectedVoice
                 })
             });
@@ -516,10 +521,17 @@ export class ReadingManager {
             this.audio.src = url;
             this.audio.playbackRate = this.state.playbackSpeed;
 
+            // Temporarily use limited words for timing estimation
+            const originalWords = this.state.words;
+            this.state.words = wordsToHighlight;
+
             await this.estimateWordTimings();
 
-            // Use the preserved index for seeking
-            if (resumeWordIndex > 0 && this.wordTimings.length > resumeWordIndex) {
+            // Restore full words list (but timing only covers first MAX_WORDS)
+            this.state.words = originalWords;
+
+            // Use the preserved index for seeking (but only if within range)
+            if (resumeWordIndex > 0 && resumeWordIndex < wordsToHighlight.length && this.wordTimings.length > resumeWordIndex) {
                 const timing = this.wordTimings[resumeWordIndex];
                 if (timing) {
                     console.log('[PlayAudioFull] Seeking to time:', timing.start, 'for word index:', resumeWordIndex);
@@ -858,7 +870,10 @@ export class ReadingManager {
         // Binary search for better performance
         let newWordIndex = this.findWordAtTime(adjustedTime);
 
-        if (newWordIndex !== this.state.currentWordIndex) {
+        // Ensure we don't go beyond available word timings
+        newWordIndex = Math.min(newWordIndex, this.wordTimings.length - 1);
+
+        if (newWordIndex !== this.state.currentWordIndex && newWordIndex >= 0) {
             this.highlightWord(newWordIndex);
         }
     }
