@@ -489,6 +489,10 @@ export class ReadingManager {
         this.lastTimingCheck = 0;
         this.timingDriftCorrection = 0;
 
+        // Preserve the current word index before generating new audio
+        const resumeWordIndex = this.state.currentWordIndex;
+        console.log('[PlayAudioFull] Resuming from word index:', resumeWordIndex);
+
         try {
             const res = await fetch('/play-text', {
                 method: 'POST',
@@ -514,10 +518,14 @@ export class ReadingManager {
 
             await this.estimateWordTimings();
 
-            if (this.state.currentWordIndex > 0 && this.wordTimings.length > this.state.currentWordIndex) {
-                const timing = this.wordTimings[this.state.currentWordIndex];
+            // Use the preserved index for seeking
+            if (resumeWordIndex > 0 && this.wordTimings.length > resumeWordIndex) {
+                const timing = this.wordTimings[resumeWordIndex];
                 if (timing) {
+                    console.log('[PlayAudioFull] Seeking to time:', timing.start, 'for word index:', resumeWordIndex);
                     this.audio.currentTime = timing.start;
+                    // Update the state to reflect the resume position
+                    this.state.currentWordIndex = resumeWordIndex;
                 }
             }
 
@@ -539,6 +547,10 @@ export class ReadingManager {
         // Reset timing correction for new audio
         this.lastTimingCheck = 0;
         this.timingDriftCorrection = 0;
+
+        // Preserve the current word index before generating new audio
+        const resumeWordIndex = this.state.currentWordIndex;
+        console.log('[PlayAudioChunked] Resuming from word index:', resumeWordIndex);
 
         try {
             // Reset chunked playback state
@@ -574,10 +586,14 @@ export class ReadingManager {
 
             await this.estimateWordTimings();
 
-            if (this.state.currentWordIndex > 0 && this.wordTimings.length > this.state.currentWordIndex) {
-                const timing = this.wordTimings[this.state.currentWordIndex];
+            // Use the preserved index for seeking
+            if (resumeWordIndex > 0 && this.wordTimings.length > resumeWordIndex) {
+                const timing = this.wordTimings[resumeWordIndex];
                 if (timing) {
+                    console.log('[PlayAudioChunked] Seeking to time:', timing.start, 'for word index:', resumeWordIndex);
                     this.audio.currentTime = timing.start;
+                    // Update the state to reflect the resume position
+                    this.state.currentWordIndex = resumeWordIndex;
                 }
             }
 

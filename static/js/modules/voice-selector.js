@@ -61,6 +61,8 @@ export class VoiceSelectorManager {
                     const wasPlaying = this.state.isPlaying;
                     const currentWordIndex = this.state.currentWordIndex;
 
+                    console.log('[VoiceSelector] Voice changed during reading, preserving word index:', currentWordIndex);
+
                     // Create cancellation token for this voice change
                     const changeToken = { cancelled: false };
                     this.pendingVoiceChange = changeToken;
@@ -278,6 +280,8 @@ export class VoiceSelectorManager {
             if (this.state.isReadingMode) {
                 const wasPlaying = this.state.isPlaying;
                 const currentWordIndex = this.state.currentWordIndex;
+
+                console.log('[VoiceSelector] Voice changed from settings, preserving word index:', currentWordIndex);
 
                 // Create cancellation token for this voice change
                 const changeToken = { cancelled: false };
