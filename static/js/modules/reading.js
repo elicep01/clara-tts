@@ -116,7 +116,7 @@ export class ReadingManager {
         // Detect user manual scrolling during reading mode
         const documentDisplay = document.getElementById('document-display');
         documentDisplay.addEventListener('wheel', () => {
-            if (this.state.isReadingMode) {
+            if (this.state.isReadingMode && this.state.isPlaying) {
                 this.userIsScrolling = true;
                 clearTimeout(this.userScrollTimeout);
                 this.userScrollTimeout = setTimeout(() => {
@@ -126,7 +126,7 @@ export class ReadingManager {
         }, { passive: true });
 
         documentDisplay.addEventListener('touchstart', () => {
-            if (this.state.isReadingMode) {
+            if (this.state.isReadingMode && this.state.isPlaying) {
                 this.userIsScrolling = true;
                 clearTimeout(this.userScrollTimeout);
                 this.userScrollTimeout = setTimeout(() => {
