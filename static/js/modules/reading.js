@@ -33,6 +33,10 @@ export class ReadingManager {
         this.currentChunkIndex = 0;
         this.totalChunks = 0;
         this.isLoadingChunks = false;
+
+        // Timing correction
+        this.lastTimingCheck = 0;
+        this.timingDriftCorrection = 0;
     }
 
     setup() {
@@ -481,6 +485,10 @@ export class ReadingManager {
     async playPageAudioFull() {
         this.clara.ui.showInlineLoading('Generating audio...');
 
+        // Reset timing correction for new audio
+        this.lastTimingCheck = 0;
+        this.timingDriftCorrection = 0;
+
         try {
             const res = await fetch('/play-text', {
                 method: 'POST',
@@ -527,6 +535,10 @@ export class ReadingManager {
 
     async playPageAudioChunked() {
         this.clara.ui.showInlineLoading('Starting...');
+
+        // Reset timing correction for new audio
+        this.lastTimingCheck = 0;
+        this.timingDriftCorrection = 0;
 
         try {
             // Reset chunked playback state
@@ -767,11 +779,44 @@ export class ReadingManager {
 
         const currentTime = this.audio.currentTime;
 
+        // Periodically recalibrate timing to stay in sync
+        // Every 10 seconds, check if we need to adjust our timing estimates
+        if (currentTime - this.lastTimingCheck > 10) {
+            this.recalibrateWordTiming(currentTime);
+            this.lastTimingCheck = currentTime;
+        }
+
+        // Apply drift correction to find accurate word
+        const adjustedTime = currentTime + this.timingDriftCorrection;
+
         // Binary search for better performance
-        let newWordIndex = this.findWordAtTime(currentTime);
+        let newWordIndex = this.findWordAtTime(adjustedTime);
 
         if (newWordIndex !== this.state.currentWordIndex) {
             this.highlightWord(newWordIndex);
+        }
+    }
+
+    recalibrateWordTiming(currentTime) {
+        // Check if we're significantly off from expected position
+        // If actual playback is ahead/behind estimated timing, adjust
+        const expectedIndex = this.state.currentWordIndex;
+        const actualIndex = this.findWordAtTime(currentTime);
+
+        // If we're more than 5 words off, apply a correction
+        const drift = actualIndex - expectedIndex;
+        if (Math.abs(drift) > 5) {
+            // Calculate time difference and apply small correction
+            const expectedTiming = this.wordTimings[expectedIndex];
+            const actualTiming = this.wordTimings[actualIndex];
+
+            if (expectedTiming && actualTiming) {
+                // Apply 20% of the drift as correction (smooth adjustment)
+                this.timingDriftCorrection += (actualTiming.start - expectedTiming.start) * 0.2;
+
+                // Limit correction to prevent overcorrection
+                this.timingDriftCorrection = Math.max(-2, Math.min(2, this.timingDriftCorrection));
+            }
         }
     }
 
