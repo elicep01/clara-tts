@@ -1558,6 +1558,26 @@ def play_text():
         print(f"[TTS] Error: {e}")
         return jsonify({'error': str(e)}), 500
 
+def split_into_sentence_chunks(text, sentences_per_chunk=3):
+    """Split text into small sentence chunks for fast initial playback"""
+    import re
+
+    # Split into sentences (handle common patterns)
+    sentences = re.split(r'(?<=[.!?])\s+(?=[A-Z])', text)
+    sentences = [s.strip() for s in sentences if s.strip()]
+
+    # If no proper sentences found, split by periods anyway
+    if len(sentences) == 1 and len(text) > 100:
+        sentences = [s.strip() + '.' for s in text.split('.') if s.strip()]
+
+    chunks = []
+    for i in range(0, len(sentences), sentences_per_chunk):
+        chunk = ' '.join(sentences[i:i + sentences_per_chunk])
+        if chunk:
+            chunks.append(chunk)
+
+    return chunks if chunks else [text]  # Fallback to full text if splitting fails
+
 def split_into_chunks(text, max_words=30):
     """Split text into chunks, preferring sentence boundaries"""
     import re
@@ -1589,23 +1609,31 @@ def split_into_chunks(text, max_words=30):
 
 @app.route('/play-text-chunked', methods=['POST'])
 def play_text_chunked():
-    """Generate audio for first chunk and return chunk info for lazy loading"""
+    """Generate audio for specific chunk - optimized for fast initial playback"""
     data = request.get_json()
     text = data.get('text', '')
     voice = data.get('voice', 'female')
-    chunk_index = data.get('chunk_index', 0)  # Which chunk to generate
+    chunk_index = data.get('chunk_index', 0)
 
     if not text:
         return jsonify({'error': 'No text provided'}), 400
 
     try:
-        # Split text into chunks
-        chunks = split_into_chunks(text, max_words=30)
+        # Split into sentence-based chunks (3 sentences each for ~1-2 second generation)
+        chunks = split_into_sentence_chunks(text, sentences_per_chunk=3)
+
+        print(f"[TTS-Chunked] Total chunks: {len(chunks)}, Requesting: {chunk_index}")
 
         # If requesting a specific chunk
         if chunk_index < len(chunks):
             chunk_text = chunks[chunk_index]
-            audio_path = generate_audio(chunk_text, voice)
+            word_count = len(chunk_text.split())
+            print(f"[TTS-Chunked] Chunk {chunk_index}: {word_count} words")
+
+            start_time = time.time()
+            audio_path = generate_audio(chunk_text, voice, timeout=10)
+            gen_time = time.time() - start_time
+            print(f"[TTS-Chunked] Generated in {gen_time:.2f}s")
 
             with open(audio_path, 'rb') as f:
                 audio_data = f.read()
@@ -1619,15 +1647,17 @@ def play_text_chunked():
             else:
                 mimetype = 'audio/aiff'
 
-            # Return audio with metadata about chunks
+            # Return audio with metadata
             response = Response(audio_data, mimetype=mimetype)
             response.headers['X-Total-Chunks'] = str(len(chunks))
             response.headers['X-Current-Chunk'] = str(chunk_index)
+            response.headers['X-Chunk-Words'] = str(word_count)
             return response
         else:
             return jsonify({'error': 'Invalid chunk index'}), 400
 
     except Exception as e:
+        print(f"[TTS-Chunked] Error: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/tts/status', methods=['GET'])

@@ -27,6 +27,12 @@ export class ReadingManager {
             pageText: null,
             isLoading: false
         };
+
+        // Chunked playback state
+        this.audioChunks = [];
+        this.currentChunkIndex = 0;
+        this.totalChunks = 0;
+        this.isLoadingChunks = false;
     }
 
     setup() {
@@ -461,31 +467,38 @@ export class ReadingManager {
             return;
         }
 
-        const wordCount = this.state.pageText.split(' ').length;
-        const loadingMsg = wordCount > 300 ? 'Generating audio (large page)...' : 'Generating audio...';
-        this.clara.ui.showInlineLoading(loadingMsg);
+        this.clara.ui.showInlineLoading('Starting...');
 
         try {
-            const res = await fetch('/play-text', {
+            // Reset chunked playback state
+            this.audioChunks = [];
+            this.currentChunkIndex = 0;
+            this.totalChunks = 0;
+
+            // Load first chunk to start immediately
+            const firstChunkRes = await fetch('/play-text-chunked', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     text: this.state.pageText,
-                    voice: this.state.selectedVoice
+                    voice: this.state.selectedVoice,
+                    chunk_index: 0
                 })
             });
 
-            if (!res.ok) {
-                const err = await res.json();
+            if (!firstChunkRes.ok) {
+                const err = await firstChunkRes.json();
                 this.clara.ui.showToast(err.error || 'Playback failed', true);
                 this.clara.ui.hideInlineLoading();
                 return;
             }
 
-            const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
+            this.totalChunks = parseInt(firstChunkRes.headers.get('X-Total-Chunks') || '1');
+            const firstBlob = await firstChunkRes.blob();
+            this.audioChunks[0] = URL.createObjectURL(firstBlob);
 
-            this.audio.src = url;
+            // Start playing first chunk immediately
+            this.audio.src = this.audioChunks[0];
             this.audio.playbackRate = this.state.playbackSpeed;
 
             await this.estimateWordTimings();
@@ -500,12 +513,82 @@ export class ReadingManager {
             this.audio.play();
             this.clara.ui.hideInlineLoading();
 
-            // Preload next page in background
-            this.preloadNextPageAudio();
+            // Load remaining chunks in background if there are more
+            if (this.totalChunks > 1) {
+                this.loadRemainingChunks();
+            }
+
+            // Set up event listener for when first chunk ends
+            if (this.totalChunks > 1) {
+                const handleChunkEnd = () => {
+                    this.playNextChunk();
+                };
+                this.audio.addEventListener('ended', handleChunkEnd, { once: true });
+            }
 
         } catch (err) {
             this.clara.ui.showToast('Playback failed: ' + err.message, true);
             this.clara.ui.hideInlineLoading();
+        }
+    }
+
+    async loadRemainingChunks() {
+        if (this.isLoadingChunks) return;
+        this.isLoadingChunks = true;
+
+        // Load all remaining chunks in parallel
+        const promises = [];
+        for (let i = 1; i < this.totalChunks; i++) {
+            promises.push(this.loadChunk(i));
+        }
+
+        try {
+            await Promise.all(promises);
+            console.log(`Loaded ${this.totalChunks} chunks`);
+        } catch (err) {
+            console.error('Failed to load some chunks:', err);
+        }
+
+        this.isLoadingChunks = false;
+    }
+
+    async loadChunk(index) {
+        try {
+            const res = await fetch('/play-text-chunked', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: this.state.pageText,
+                    voice: this.state.selectedVoice,
+                    chunk_index: index
+                })
+            });
+
+            if (res.ok) {
+                const blob = await res.blob();
+                this.audioChunks[index] = URL.createObjectURL(blob);
+            }
+        } catch (err) {
+            console.error(`Failed to load chunk ${index}:`, err);
+        }
+    }
+
+    playNextChunk() {
+        this.currentChunkIndex++;
+
+        if (this.currentChunkIndex < this.totalChunks && this.audioChunks[this.currentChunkIndex]) {
+            // Play next chunk
+            this.audio.src = this.audioChunks[this.currentChunkIndex];
+            this.audio.playbackRate = this.state.playbackSpeed;
+            this.audio.play();
+
+            // Set up listener for next chunk if there are more
+            if (this.currentChunkIndex < this.totalChunks - 1) {
+                const handleChunkEnd = () => {
+                    this.playNextChunk();
+                };
+                this.audio.addEventListener('ended', handleChunkEnd, { once: true });
+            }
         }
     }
 
