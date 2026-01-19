@@ -467,6 +467,65 @@ export class ReadingManager {
             return;
         }
 
+        const wordCount = this.state.pageText.split(' ').length;
+
+        // For pages with reasonable word count, use full audio (better word timing)
+        // For very long pages, use chunked audio (faster start)
+        if (wordCount <= 300) {
+            return this.playPageAudioFull();
+        } else {
+            return this.playPageAudioChunked();
+        }
+    }
+
+    async playPageAudioFull() {
+        this.clara.ui.showInlineLoading('Generating audio...');
+
+        try {
+            const res = await fetch('/play-text', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: this.state.pageText,
+                    voice: this.state.selectedVoice
+                })
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                this.clara.ui.showToast(err.error || 'Playback failed', true);
+                this.clara.ui.hideInlineLoading();
+                return;
+            }
+
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+
+            this.audio.src = url;
+            this.audio.playbackRate = this.state.playbackSpeed;
+
+            await this.estimateWordTimings();
+
+            if (this.state.currentWordIndex > 0 && this.wordTimings.length > this.state.currentWordIndex) {
+                const timing = this.wordTimings[this.state.currentWordIndex];
+                if (timing) {
+                    this.audio.currentTime = timing.start;
+                }
+            }
+
+            this.audio.play();
+            this.clara.ui.hideInlineLoading();
+
+            // Preload next page in background
+            this.preloadNextPageAudio();
+
+        } catch (err) {
+            this.clara.ui.showToast('Playback failed: ' + err.message, true);
+            this.clara.ui.hideInlineLoading();
+        }
+    }
+
+    async playPageAudioChunked() {
         this.clara.ui.showInlineLoading('Starting...');
 
         try {

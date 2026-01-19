@@ -1527,16 +1527,15 @@ def play_text():
     char_count = len(text)
     print(f"[TTS] Generating audio: {word_count} words, {char_count} chars")
 
-    # If text is very long (>500 words), truncate with warning
-    # User can use chunked endpoint for very long text
-    if word_count > 500:
+    # Limit to 300 words for full page audio (chunked endpoint handles longer pages)
+    if word_count > 300:
         words = text.split()
-        text = ' '.join(words[:500])
-        print(f"[TTS] WARNING: Text truncated from {word_count} to 500 words")
+        text = ' '.join(words[:300])
+        print(f"[TTS] INFO: Text limited from {word_count} to 300 words (use chunked for longer)")
 
     try:
         start_time = time.time()
-        audio_path = generate_audio(text, voice, timeout=45)
+        audio_path = generate_audio(text, voice, timeout=20)
         gen_time = time.time() - start_time
         print(f"[TTS] Generated in {gen_time:.2f}s")
 
