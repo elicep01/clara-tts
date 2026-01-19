@@ -744,38 +744,89 @@ export class ReadingManager {
     async estimateWordTimings() {
         const duration = await this.getAudioDuration();
 
-        // Calculate word weights based on syllables/complexity, not just character count
-        const wordWeights = this.state.words.map(word => {
+        console.log('[WordTiming] Audio duration:', duration, 'seconds for', this.state.words.length, 'words');
+
+        // More sophisticated word timing that accounts for TTS speech patterns
+        const wordWeights = this.state.words.map((word, idx) => {
             const text = word.text;
-            // Base weight on word length
-            let weight = text.length;
+            const prevWord = idx > 0 ? this.state.words[idx - 1].text : '';
 
-            // Add weight for punctuation (causes pauses)
-            if (/[.,;:!?]$/.test(text)) weight += 2;
+            // Estimate syllables more accurately
+            const syllables = this.estimateSyllables(text);
 
-            // Add weight for longer words (slower pronunciation)
-            if (text.length > 8) weight += text.length * 0.3;
+            // Base weight on syllables (more accurate than character count)
+            // Average speaking rate is ~2.5 syllables per second
+            let weight = syllables * 0.4;
 
-            // Reduce weight for common short words (faster pronunciation)
-            if (/^(a|an|the|is|of|to|in|on|at|by|for)$/i.test(text)) {
-                weight *= 0.7;
+            // Add significant pauses for punctuation
+            if (/[.!?]$/.test(text)) {
+                weight += 0.8; // Longer pause for sentence ends
+            } else if (/[,;:]$/.test(text)) {
+                weight += 0.4; // Medium pause for commas
+            } else if (/[-–—]$/.test(text)) {
+                weight += 0.2; // Small pause for dashes
             }
 
-            return Math.max(weight, 0.5);
+            // Start of sentence after punctuation gets slight delay
+            if (idx > 0 && /[.!?]$/.test(prevWord)) {
+                weight += 0.3;
+            }
+
+            // Longer words take more time
+            if (text.length > 10) {
+                weight += text.length * 0.05;
+            }
+
+            // Very short common words are faster
+            if (/^(a|an|the|is|of|to|in|on|at|by|for|it)$/i.test(text)) {
+                weight *= 0.6;
+            }
+
+            // Numbers and technical terms slower
+            if (/\d/.test(text) || /[A-Z]{2,}/.test(text)) {
+                weight *= 1.3;
+            }
+
+            return Math.max(weight, 0.15);
         });
 
         const totalWeight = wordWeights.reduce((sum, w) => sum + w, 0);
 
+        // Distribute duration across words based on weights
         let currentTime = 0;
-        this.wordTimings = wordWeights.map((weight) => {
+        this.wordTimings = wordWeights.map((weight, idx) => {
             const wordDuration = (weight / totalWeight) * duration;
             const timing = {
                 start: currentTime,
-                end: currentTime + wordDuration
+                end: currentTime + wordDuration,
+                word: this.state.words[idx].text
             };
             currentTime += wordDuration;
             return timing;
         });
+
+        console.log('[WordTiming] First 5 words:', this.wordTimings.slice(0, 5).map(t =>
+            `${t.word}: ${t.start.toFixed(2)}s-${t.end.toFixed(2)}s (${(t.end - t.start).toFixed(2)}s)`
+        ));
+    }
+
+    estimateSyllables(word) {
+        // Simple syllable estimation based on vowel groups
+        word = word.toLowerCase().replace(/[^a-z]/g, '');
+        if (word.length <= 3) return 1;
+
+        // Count vowel groups
+        const vowelGroups = word.match(/[aeiouy]+/g);
+        let count = vowelGroups ? vowelGroups.length : 1;
+
+        // Adjust for silent e
+        if (word.endsWith('e') && count > 1) count--;
+
+        // Adjust for common patterns
+        if (word.endsWith('le') && count > 1) count++;
+        if (word.match(/tion|sion|ture/)) count = Math.max(count, 2);
+
+        return Math.max(count, 1);
     }
 
     getAudioDuration() {
@@ -795,9 +846,8 @@ export class ReadingManager {
 
         const currentTime = this.audio.currentTime;
 
-        // Periodically recalibrate timing to stay in sync
-        // Every 10 seconds, check if we need to adjust our timing estimates
-        if (currentTime - this.lastTimingCheck > 10) {
+        // Check more frequently for better sync (every 5 seconds instead of 10)
+        if (currentTime - this.lastTimingCheck > 5) {
             this.recalibrateWordTiming(currentTime);
             this.lastTimingCheck = currentTime;
         }
@@ -815,23 +865,26 @@ export class ReadingManager {
 
     recalibrateWordTiming(currentTime) {
         // Check if we're significantly off from expected position
-        // If actual playback is ahead/behind estimated timing, adjust
         const expectedIndex = this.state.currentWordIndex;
         const actualIndex = this.findWordAtTime(currentTime);
 
-        // If we're more than 5 words off, apply a correction
         const drift = actualIndex - expectedIndex;
-        if (Math.abs(drift) > 5) {
-            // Calculate time difference and apply small correction
+
+        // Apply correction if we're more than 3 words off (was 5)
+        if (Math.abs(drift) > 3) {
             const expectedTiming = this.wordTimings[expectedIndex];
             const actualTiming = this.wordTimings[actualIndex];
 
             if (expectedTiming && actualTiming) {
-                // Apply 20% of the drift as correction (smooth adjustment)
-                this.timingDriftCorrection += (actualTiming.start - expectedTiming.start) * 0.2;
+                const timeDrift = actualTiming.start - expectedTiming.start;
 
-                // Limit correction to prevent overcorrection
-                this.timingDriftCorrection = Math.max(-2, Math.min(2, this.timingDriftCorrection));
+                // More aggressive correction (40% instead of 20%) for better sync
+                this.timingDriftCorrection += timeDrift * 0.4;
+
+                // Allow larger corrections (±3 seconds instead of ±2)
+                this.timingDriftCorrection = Math.max(-3, Math.min(3, this.timingDriftCorrection));
+
+                console.log('[Recalibration] Drift:', drift, 'words, Time drift:', timeDrift.toFixed(2), 's, Correction:', this.timingDriftCorrection.toFixed(2), 's');
             }
         }
     }
@@ -1101,21 +1154,27 @@ export class ReadingManager {
     async readFromWord(wordIndex) {
         if (wordIndex === null || wordIndex === undefined) return;
 
+        console.log('[ReadFromWord] Starting from word index:', wordIndex, '/', this.state.words.length);
+
         this.pendingWordIndex = wordIndex;
 
         if (!this.state.isReadingMode) {
+            console.log('[ReadFromWord] Starting reading mode first...');
             await this.start();
         }
 
+        // Wait for audio to be ready
         await new Promise(resolve => setTimeout(resolve, 100));
 
         if (this.wordTimings.length > wordIndex) {
+            console.log('[ReadFromWord] Seeking to word', wordIndex, 'at time:', this.wordTimings[wordIndex].start, 's');
             this.seekToWord(wordIndex);
 
             if (!this.state.isPlaying) {
                 this.audio.play();
             }
         } else {
+            console.log('[ReadFromWord] Word timings not ready yet, setting index manually');
             this.state.currentWordIndex = wordIndex;
             for (let i = 0; i < wordIndex && i < this.wordBoxes.length; i++) {
                 this.wordBoxes[i].classList.add('read');
