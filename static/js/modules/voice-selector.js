@@ -55,21 +55,22 @@ export class VoiceSelectorManager {
                     const wasPlaying = this.state.isPlaying;
                     const currentWordIndex = this.state.currentWordIndex;
 
-                    this.clara.ui.showInlineLoading('Switching voice...');
-
-                    await this.clara.reading.loadPageForReading(this.state.viewerCurrentPage);
-
-                    if (wasPlaying) {
-                        if (currentWordIndex > 0 && this.clara.reading.wordTimings.length > currentWordIndex) {
-                            const timing = this.clara.reading.wordTimings[currentWordIndex];
-                            if (timing) {
-                                this.clara.reading.audio.currentTime = timing.start;
-                            }
-                        }
-                        this.clara.reading.audio.play();
+                    // Pause current audio if playing
+                    if (wasPlaying && this.clara.reading.audio) {
+                        this.clara.reading.audio.pause();
                     }
 
-                    this.clara.ui.hideInlineLoading();
+                    // Store current word index
+                    this.state.currentWordIndex = currentWordIndex;
+
+                    // Regenerate audio with new voice
+                    await this.clara.reading.playPageAudio();
+
+                    // playPageAudio already handles resuming playback, but we need to ensure
+                    // it doesn't auto-play if it was paused
+                    if (!wasPlaying && this.clara.reading.audio) {
+                        this.clara.reading.audio.pause();
+                    }
                 }
             });
         });
@@ -255,25 +256,22 @@ export class VoiceSelectorManager {
                 const wasPlaying = this.state.isPlaying;
                 const currentWordIndex = this.state.currentWordIndex;
 
-                // Show loading indicator
-                this.clara.ui.showInlineLoading('Switching voice...');
-
-                // Regenerate audio for current page
-                await this.clara.reading.loadPageForReading(this.state.viewerCurrentPage);
-
-                // Restore playback state
-                if (wasPlaying) {
-                    // Seek to the word we were at
-                    if (currentWordIndex > 0 && this.clara.reading.wordTimings.length > currentWordIndex) {
-                        const timing = this.clara.reading.wordTimings[currentWordIndex];
-                        if (timing) {
-                            this.clara.reading.audio.currentTime = timing.start;
-                        }
-                    }
-                    this.clara.reading.audio.play();
+                // Pause current audio if playing
+                if (wasPlaying && this.clara.reading.audio) {
+                    this.clara.reading.audio.pause();
                 }
 
-                this.clara.ui.hideInlineLoading();
+                // Store current word index
+                this.state.currentWordIndex = currentWordIndex;
+
+                // Regenerate audio with new voice
+                await this.clara.reading.playPageAudio();
+
+                // playPageAudio already handles resuming playback, but we need to ensure
+                // it doesn't auto-play if it was paused
+                if (!wasPlaying && this.clara.reading.audio) {
+                    this.clara.reading.audio.pause();
+                }
             }
 
         } catch (err) {
