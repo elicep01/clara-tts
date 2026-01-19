@@ -4,7 +4,9 @@
       "Bash(python3:*)",
       "Bash(git pull:*)",
       "Bash(git rm:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd timeout handling and automatic truncation for long text\n\n- Added 45-second timeout for audio generation to prevent hanging\n- Automatically truncate pages longer than 500 words\n- Show different loading message for large pages\n- Add detailed logging for TTS generation time and text length\n- Chunked endpoint available for future optimization\n\nThis prevents the app from hanging on very long pages and gives users immediate feedback.\nEOF\n\\)\")",
+      "Bash(git push)"
     ]
   }
 }

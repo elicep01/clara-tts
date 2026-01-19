@@ -484,7 +484,7 @@ def get_saved_voice():
     # Default voice
     return 'en-US-JennyNeural' if EDGE_TTS_AVAILABLE else 'Samantha'
 
-def generate_audio(text, voice=None):
+def generate_audio(text, voice=None, timeout=30):
     """
     Generate audio using edge-tts (Microsoft Neural Voices) or fallback to macOS
 
@@ -492,6 +492,7 @@ def generate_audio(text, voice=None):
         text: Text to synthesize
         voice: Voice ID (e.g., 'en-US-JennyNeural') or legacy 'female'/'male'.
                If None, uses saved preference.
+        timeout: Maximum time in seconds to wait for generation (default 30)
     """
     global EDGE_TTS_AVAILABLE
 
@@ -517,8 +518,11 @@ def generate_audio(text, voice=None):
                 communicate = edge_tts.Communicate(text, voice_name)
                 await communicate.save(temp_audio.name)
 
-            # Run async function
-            asyncio.run(generate())
+            # Run async function with timeout
+            try:
+                asyncio.run(asyncio.wait_for(generate(), timeout=timeout))
+            except asyncio.TimeoutError:
+                raise Exception(f"Audio generation timed out after {timeout} seconds. Text may be too long.")
 
             return temp_audio.name
         else:
@@ -533,7 +537,8 @@ def generate_audio(text, voice=None):
                 ['say', '-v', macos_voice, '-o', temp_audio.name, text],
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
+                timeout=timeout
             )
 
             return temp_audio.name
@@ -1517,8 +1522,23 @@ def play_text():
     if not text:
         return jsonify({'error': 'No text provided'}), 400
 
+    # Log text length for debugging
+    word_count = len(text.split())
+    char_count = len(text)
+    print(f"[TTS] Generating audio: {word_count} words, {char_count} chars")
+
+    # If text is very long (>500 words), truncate with warning
+    # User can use chunked endpoint for very long text
+    if word_count > 500:
+        words = text.split()
+        text = ' '.join(words[:500])
+        print(f"[TTS] WARNING: Text truncated from {word_count} to 500 words")
+
     try:
-        audio_path = generate_audio(text, voice)
+        start_time = time.time()
+        audio_path = generate_audio(text, voice, timeout=45)
+        gen_time = time.time() - start_time
+        print(f"[TTS] Generated in {gen_time:.2f}s")
 
         with open(audio_path, 'rb') as f:
             audio_data = f.read()
@@ -1535,6 +1555,7 @@ def play_text():
         return Response(audio_data, mimetype=mimetype)
 
     except Exception as e:
+        print(f"[TTS] Error: {e}")
         return jsonify({'error': str(e)}), 500
 
 def split_into_chunks(text, max_words=30):

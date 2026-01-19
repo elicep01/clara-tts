@@ -461,7 +461,9 @@ export class ReadingManager {
             return;
         }
 
-        this.clara.ui.showInlineLoading('Generating audio...');
+        const wordCount = this.state.pageText.split(' ').length;
+        const loadingMsg = wordCount > 300 ? 'Generating audio (large page)...' : 'Generating audio...';
+        this.clara.ui.showInlineLoading(loadingMsg);
 
         try {
             const res = await fetch('/play-text', {
