@@ -26,16 +26,51 @@ export class VoiceSelectorManager {
         });
 
         document.querySelectorAll('.voice-option').forEach(option => {
-            option.addEventListener('click', (e) => {
+            option.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 const voice = option.dataset.voice;
+
+                // Update backend voice setting
+                try {
+                    await fetch('/tts/voice', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ voice_id: voice })
+                    });
+                } catch (err) {
+                    console.error('Failed to update voice:', err);
+                }
+
                 this.state.selectedVoice = voice;
+                this.currentVoiceId = voice;
 
                 document.querySelectorAll('.voice-option').forEach(o => o.classList.remove('active'));
                 option.classList.add('active');
 
                 dropdown.classList.add('hidden');
                 this.clara.ui.showToast(`Voice changed to ${option.querySelector('.voice-name').textContent}`);
+
+                // If currently reading, regenerate audio with new voice
+                if (this.state.isReadingMode) {
+                    const wasPlaying = this.state.isPlaying;
+                    const currentWordIndex = this.state.currentWordIndex;
+
+                    this.clara.ui.showInlineLoading('Switching voice...');
+
+                    await this.clara.reading.loadPageForReading(this.state.viewerCurrentPage);
+
+                    if (wasPlaying) {
+                        if (currentWordIndex > 0 && this.clara.reading.wordTimings.length > currentWordIndex) {
+                            const timing = this.clara.reading.wordTimings[currentWordIndex];
+                            if (timing) {
+                                this.clara.reading.audio.currentTime = timing.start;
+                            }
+                        }
+                        this.clara.reading.audio.play();
+                    }
+
+                    this.clara.ui.hideInlineLoading();
+                }
             });
         });
 
@@ -202,6 +237,7 @@ export class VoiceSelectorManager {
             }
 
             this.currentVoiceId = voiceId;
+            this.state.selectedVoice = voiceId;
 
             // Update UI
             document.querySelectorAll('.voice-item').forEach(item => {
@@ -214,8 +250,35 @@ export class VoiceSelectorManager {
             const voice = this.voices.find(v => v.id === voiceId);
             this.clara.ui.showToast(`Voice changed to ${voice?.name || voiceId}`);
 
+            // If currently reading, regenerate audio with new voice
+            if (this.state.isReadingMode) {
+                const wasPlaying = this.state.isPlaying;
+                const currentWordIndex = this.state.currentWordIndex;
+
+                // Show loading indicator
+                this.clara.ui.showInlineLoading('Switching voice...');
+
+                // Regenerate audio for current page
+                await this.clara.reading.loadPageForReading(this.state.viewerCurrentPage);
+
+                // Restore playback state
+                if (wasPlaying) {
+                    // Seek to the word we were at
+                    if (currentWordIndex > 0 && this.clara.reading.wordTimings.length > currentWordIndex) {
+                        const timing = this.clara.reading.wordTimings[currentWordIndex];
+                        if (timing) {
+                            this.clara.reading.audio.currentTime = timing.start;
+                        }
+                    }
+                    this.clara.reading.audio.play();
+                }
+
+                this.clara.ui.hideInlineLoading();
+            }
+
         } catch (err) {
             this.clara.ui.showToast('Failed to change voice: ' + err.message, true);
+            this.clara.ui.hideInlineLoading();
         }
     }
 
