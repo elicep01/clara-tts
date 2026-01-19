@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clara</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Global Navigation Bar -->
+        <nav class="nav-bar" id="nav-bar">
+            <div class="nav-left">
+                <button class="nav-btn" id="btn-home" title="Home">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                        <polyline points="9 22 9 12 15 12 15 22"/>
+                    </svg>
+                </button>
+                <button class="nav-btn" id="btn-back" title="Back">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M19 12H5M12 19l-7-7 7-7"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="nav-title" id="nav-title">Clara</div>
+            <div class="nav-right">
+                <!-- Notes toggle (visible in viewer) -->
+                <button class="nav-btn hidden" id="btn-toggle-notes" title="Show Notes">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <line x1="16" y1="13" x2="8" y2="13"/>
+                        <line x1="16" y1="17" x2="8" y2="17"/>
+                        <polyline points="10 9 9 9 8 9"/>
+                    </svg>
+                    <span class="notes-badge hidden" id="notes-badge">0</span>
+                </button>
+                <!-- Zoom controls (visible in viewer) -->
+                <div class="zoom-controls hidden" id="zoom-controls">
+                    <button class="nav-btn" id="btn-zoom-out" title="Zoom Out">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"/>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                            <line x1="8" y1="11" x2="14" y2="11"/>
+                        </svg>
+                    </button>
+                    <span class="zoom-level" id="zoom-level">100%</span>
+                    <button class="nav-btn" id="btn-zoom-in" title="Zoom In">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"/>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                            <line x1="11" y1="8" x2="11" y2="14"/>
+                            <line x1="8" y1="11" x2="14" y2="11"/>
+                        </svg>
+                    </button>
+                    <button class="nav-btn" id="btn-zoom-fit" title="Fit to Width">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                            <line x1="9" y1="3" x2="9" y2="21"/>
+                            <line x1="15" y1="3" x2="15" y2="21"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="voice-selector" id="voice-selector">
+                    <button class="nav-btn" id="btn-voice" title="Voice Settings">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                            <line x1="12" y1="19" x2="12" y2="23"/>
+                            <line x1="8" y1="23" x2="16" y2="23"/>
+                        </svg>
+                    </button>
+                    <div class="voice-dropdown hidden" id="voice-dropdown">
+                        <div class="voice-option active" data-voice="female">
+                            <span class="voice-name">Jenny</span>
+                            <span class="voice-desc">Female, Neural</span>
+                        </div>
+                        <div class="voice-option" data-voice="male">
+                            <span class="voice-name">Guy</span>
+                            <span class="voice-desc">Male, Neural</span>
+                        </div>
+                    </div>
+                </div>
+                <button class="nav-btn" id="btn-settings" title="Settings">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                    </svg>
+                </button>
+            </div>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Library View (Home) -->
+            <div id="library-view" class="view active">
+                <div class="library-container">
+                    <div class="library-header">
+                        <h2>Library</h2>
+                        <div class="library-actions">
+                            <button class="btn-secondary" id="btn-new-folder">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                                    <line x1="12" y1="11" x2="12" y2="17"/>
+                                    <line x1="9" y1="14" x2="15" y2="14"/>
+                                </svg>
+                                New Folder
+                            </button>
+                            <button class="btn-primary" id="btn-upload-doc">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="17 8 12 3 7 8"/>
+                                    <line x1="12" y1="3" x2="12" y2="15"/>
+                                </svg>
+                                Upload
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="library-content">
+                        <!-- Folder Sidebar -->
+                        <div class="folder-sidebar">
+                            <div class="folder-item active" data-folder-id="" data-drop-target="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                                </svg>
+                                <span>All Documents</span>
+                            </div>
+                            <div id="folder-tree"></div>
+                        </div>
+
+                        <!-- Document Grid -->
+                        <div class="document-area" id="document-area" data-drop-target="true">
+                            <div class="breadcrumb" id="breadcrumb">
+                                <span class="breadcrumb-item active">All Documents</span>
+                            </div>
+                            <div class="document-grid" id="document-grid">
+                                <!-- Documents and folders rendered dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Document Viewer (PDF Preview + Reading) -->
+            <div id="viewer-view" class="view">
+                <div class="viewer-container">
+                    <div class="viewer-content">
+                        <!-- Page Thumbnails/TOC Sidebar -->
+                        <div class="page-sidebar" id="page-sidebar">
+                            <div class="sidebar-toggle">
+                                <button class="sidebar-toggle-btn active" id="btn-show-thumbnails" title="Page Thumbnails">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                        <!-- Page thumbnails grid icon -->
+                                        <rect x="2" y="2" width="8" height="10" rx="1"/>
+                                        <rect x="14" y="2" width="8" height="10" rx="1"/>
+                                        <rect x="2" y="14" width="8" height="8" rx="1"/>
+                                        <rect x="14" y="14" width="8" height="8" rx="1"/>
+                                        <!-- Lines inside to indicate page content -->
+                                        <line x1="4" y1="5" x2="8" y2="5" stroke-width="1"/>
+                                        <line x1="4" y1="7" x2="8" y2="7" stroke-width="1"/>
+                                        <line x1="16" y1="5" x2="20" y2="5" stroke-width="1"/>
+                                        <line x1="16" y1="7" x2="20" y2="7" stroke-width="1"/>
+                                    </svg>
+                                </button>
+                                <button class="sidebar-toggle-btn" id="btn-show-toc" title="Table of Contents">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <!-- TOC/outline icon with hierarchy -->
+                                        <line x1="4" y1="6" x2="20" y2="6"/>
+                                        <line x1="8" y1="12" x2="20" y2="12"/>
+                                        <line x1="8" y1="18" x2="20" y2="18"/>
+                                        <circle cx="4" cy="12" r="1" fill="currentColor"/>
+                                        <circle cx="4" cy="18" r="1" fill="currentColor"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div class="page-list" id="page-list">
+                                <!-- Thumbnails populated dynamically -->
+                            </div>
+                            <div class="toc-list hidden" id="toc-list">
+                                <!-- Table of contents populated dynamically -->
+                            </div>
+                            <div class="toc-empty hidden" id="toc-empty">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <line x1="8" y1="6" x2="21" y2="6"/>
+                                    <line x1="8" y1="12" x2="21" y2="12"/>
+                                    <line x1="8" y1="18" x2="21" y2="18"/>
+                                    <line x1="3" y1="6" x2="3.01" y2="6"/>
+                                    <line x1="3" y1="12" x2="3.01" y2="12"/>
+                                    <line x1="3" y1="18" x2="3.01" y2="18"/>
+                                </svg>
+                                <p>No table of contents</p>
+                                <span>This document doesn't have a TOC</span>
+                            </div>
+                        </div>
+
+                        <!-- Main Document Display with Word Highlight Overlay -->
+                        <div class="document-display" id="document-display">
+                            <div class="page-wrapper" id="page-wrapper">
+                                <div class="page-content" id="page-content">
+                                    <!-- Page image rendered here, overlay will be added dynamically -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Notes Sidebar -->
+                        <div class="notes-sidebar hidden" id="notes-sidebar">
+                            <div class="notes-header">
+                                <h3>Notes</h3>
+                                <button class="btn-close-notes" id="btn-close-notes" title="Close Notes">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <line x1="18" y1="6" x2="6" y2="18"/>
+                                        <line x1="6" y1="6" x2="18" y2="18"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div class="notes-list" id="notes-list">
+                                <!-- Notes rendered dynamically -->
+                            </div>
+                            <div class="notes-empty hidden" id="notes-empty">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                    <polyline points="14 2 14 8 20 8"/>
+                                    <line x1="12" y1="18" x2="12" y2="12"/>
+                                    <line x1="9" y1="15" x2="15" y2="15"/>
+                                </svg>
+                                <p>No notes yet</p>
+                                <span>Ask Clara a question and save it as a note</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Viewer Footer - switches between browse mode and reading mode -->
+                    <div class="viewer-footer" id="viewer-footer">
+                        <!-- Browse Mode Controls -->
+                        <div class="browse-controls" id="browse-controls">
+                            <div class="page-nav-inline">
+                                <button class="btn-page-nav" id="btn-prev-page" disabled>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M15 18l-6-6 6-6"/>
+                                    </svg>
+                                </button>
+                                <span class="page-indicator" id="page-indicator">Page 1 / 1</span>
+                                <button class="btn-page-nav" id="btn-next-page">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M9 18l6-6-6-6"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            <button class="btn-start-reading" id="btn-start-reading">
+                                <svg viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M8 5v14l11-7z"/>
+                                </svg>
+                                Read This Page
+                            </button>
+                        </div>
+
+                        <!-- Reading Mode Controls (hidden by default) -->
+                        <div class="reading-controls hidden" id="reading-controls">
+                            <div class="reading-left">
+                                <button class="btn-reading-control" id="btn-play-pause">
+                                    <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M8 5v14l11-7z"/>
+                                    </svg>
+                                    <svg class="icon-pause hidden" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M6 4h4v16H6zm8 0h4v16h-4z"/>
+                                    </svg>
+                                </button>
+                                <div class="speed-control">
+                                    <label>Speed:</label>
+                                    <select id="reading-speed">
+                                        <option value="0.75">0.75x</option>
+                                        <option value="1" selected>1x</option>
+                                        <option value="1.25">1.25x</option>
+                                        <option value="1.5">1.5x</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="reading-center">
+                                <button class="btn-page-nav" id="btn-read-prev" title="Previous Page">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M15 18l-6-6 6-6"/>
+                                    </svg>
+                                </button>
+                                <div class="reading-progress">
+                                    <div class="progress-bar-full" id="reading-progress-bar">
+                                        <div class="progress-fill" id="reading-progress-fill"></div>
+                                    </div>
+                                    <span class="progress-text" id="reading-progress-text">0%</span>
+                                </div>
+                                <button class="btn-page-nav" id="btn-read-next" title="Next Page">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M9 18l6-6-6-6"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div class="reading-right">
+                                <button class="btn-sync-reading" id="btn-sync-reading" title="Sync to Current Position">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    Sync
+                                </button>
+                                <button class="btn-stop-reading" id="btn-stop-reading" title="Stop Reading">
+                                    <svg viewBox="0 0 24 24" fill="currentColor">
+                                        <rect x="6" y="6" width="12" height="12"/>
+                                    </svg>
+                                    Stop
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Question Section (shown during reading) -->
+                    <div class="question-section hidden" id="question-section">
+                        <div class="question-input-group">
+                            <input type="text" id="question-input" placeholder="Ask Clara anything about this document..." class="question-input">
+                            <button class="btn-send" id="btn-send">
+                                <svg viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <div id="answer-box" class="answer-box hidden">
+                            <div class="answer-label">Clara says:</div>
+                            <div id="answer-text" class="answer-text"></div>
+                            <div class="answer-actions">
+                                <button class="btn-save-note" id="btn-save-as-note" title="Save as Note">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                        <line x1="12" y1="18" x2="12" y2="12"/>
+                                        <line x1="9" y1="15" x2="15" y2="15"/>
+                                    </svg>
+                                    Save as Note
+                                </button>
+                                <button class="btn-resume" id="btn-dismiss-answer">Got it</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Upload Modal -->
+        <div id="upload-modal" class="modal hidden">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content">
+                <div class="upload-card" id="upload-zone">
+                    <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M7 18a4.6 4.4 0 0 1 0 -9a5 4.5 0 0 1 11 2h1a3.5 3.5 0 0 1 0 7h-1" />
+                        <path d="M9 15l3 -3l3 3" />
+                        <path d="M12 12l0 9" />
+                    </svg>
+                    <h2>Drop your document</h2>
+                    <p>Or click to browse</p>
+                    <p class="hint">PDF, TXT, or Markdown</p>
+                    <input type="file" id="file-input" accept=".pdf,.txt,.md" hidden>
+                </div>
+                <button class="btn-close-modal" id="btn-close-upload">Cancel</button>
+            </div>
+        </div>
+
+        <!-- Folder Name Modal -->
+        <div id="folder-modal" class="modal hidden">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content modal-small">
+                <h3 id="folder-modal-title">New Folder</h3>
+                <input type="text" id="folder-name-input" class="text-input" placeholder="Folder name">
+                <div class="modal-actions">
+                    <button class="btn-secondary" id="btn-cancel-folder">Cancel</button>
+                    <button class="btn-primary" id="btn-save-folder">Create</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Move to Folder Modal -->
+        <div id="move-modal" class="modal hidden">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content modal-small">
+                <h3>Move to Folder</h3>
+                <div class="folder-select-list" id="folder-select-list"></div>
+                <div class="modal-actions">
+                    <button class="btn-secondary" id="btn-cancel-move">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Rename Document Modal -->
+        <div id="rename-doc-modal" class="modal hidden">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content modal-small">
+                <h3>Rename Document</h3>
+                <input type="text" id="doc-name-input" class="text-input" placeholder="Document name">
+                <div class="modal-actions">
+                    <button class="btn-secondary" id="btn-cancel-rename-doc">Cancel</button>
+                    <button class="btn-primary" id="btn-save-rename-doc">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Note Detail Modal -->
+        <div id="note-modal" class="modal hidden">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content modal-note">
+                <div class="note-modal-header">
+                    <h3 id="note-modal-title">Note</h3>
+                    <div class="note-color-picker">
+                        <button class="color-dot active" data-color="#FFE066" style="background: #FFE066;" title="Yellow"></button>
+                        <button class="color-dot" data-color="#A8E6CF" style="background: #A8E6CF;" title="Green"></button>
+                        <button class="color-dot" data-color="#88D8F5" style="background: #88D8F5;" title="Blue"></button>
+                        <button class="color-dot" data-color="#FFB3BA" style="background: #FFB3BA;" title="Pink"></button>
+                        <button class="color-dot" data-color="#DDA0DD" style="background: #DDA0DD;" title="Purple"></button>
+                    </div>
+                </div>
+                <div class="note-question hidden" id="note-question">
+                    <span class="note-question-label">Clara's Answer:</span>
+                    <span class="note-question-text" id="note-question-text"></span>
+                </div>
+                <div class="note-anchor hidden" id="note-anchor">
+                    <span class="note-anchor-label">Attached to:</span>
+                    <span class="note-anchor-text" id="note-anchor-text"></span>
+                </div>
+                <textarea id="note-content-input" class="note-textarea" placeholder="Your note..."></textarea>
+                <div class="note-meta" id="note-meta">
+                    <span>Page <span id="note-page-num">1</span></span>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-danger" id="btn-delete-note">Delete</button>
+                    <div class="modal-actions-right">
+                        <button class="btn-secondary" id="btn-cancel-note">Cancel</button>
+                        <button class="btn-primary" id="btn-save-note">Save</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Modal -->
+        <div id="settings-modal" class="modal hidden">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content modal-settings">
+                <div class="settings-header">
+                    <h3>Settings</h3>
+                    <button class="btn-close-settings" id="btn-close-settings">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="settings-tabs">
+                    <button class="settings-tab active" data-tab="llm">AI Models</button>
+                    <button class="settings-tab" data-tab="voices">Voices</button>
+                    <button class="settings-tab" data-tab="about">About</button>
+                </div>
+
+                <div class="settings-content">
+                    <!-- LLM Tab -->
+                    <div class="settings-tab-content active" id="settings-tab-llm">
+                        <div class="llm-status-bar">
+                            <div class="llm-status-indicator">
+                                <span class="status-dot" id="llm-status-dot"></span>
+                                <span id="llm-status-text">Loading...</span>
+                            </div>
+                            <button class="btn-secondary btn-small" id="btn-refresh-llm">Refresh</button>
+                        </div>
+
+                        <div class="llm-section">
+                            <h4>Downloaded Models</h4>
+                            <div class="llm-list" id="downloaded-llm-list">
+                                <div class="llm-empty">No models downloaded yet</div>
+                            </div>
+                        </div>
+
+                        <div class="llm-section">
+                            <h4>Available Models</h4>
+                            <p class="section-desc">Download additional AI models to improve Clara's Q&A capabilities</p>
+                            <div class="llm-list" id="available-llm-list">
+                                <div class="llm-loading">
+                                    <div class="spinner"></div>
+                                    <span>Loading models...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Voices Tab -->
+                    <div class="settings-tab-content" id="settings-tab-voices">
+                        <div class="voice-preview-section">
+                            <h4>Preview Voice</h4>
+                            <div class="voice-preview-controls">
+                                <select id="voice-sample-select" class="voice-sample-select">
+                                    <option value="0">Sample 1: Introduction</option>
+                                    <option value="1">Sample 2: Pangram</option>
+                                    <option value="2">Sample 3: Reading quote</option>
+                                </select>
+                                <div class="voice-preview-status" id="voice-preview-status"></div>
+                            </div>
+                        </div>
+
+                        <div class="voice-section">
+                            <h4>Current Voice</h4>
+                            <div class="current-voice-display" id="current-voice-display">
+                                <span class="current-voice-name">Loading...</span>
+                            </div>
+                        </div>
+
+                        <div class="voice-section">
+                            <h4>Available Voices</h4>
+                            <div class="voice-filters">
+                                <select id="voice-language-filter" class="voice-filter-select">
+                                    <option value="">All Languages</option>
+                                </select>
+                                <select id="voice-gender-filter" class="voice-filter-select">
+                                    <option value="">All Genders</option>
+                                    <option value="Female">Female</option>
+                                    <option value="Male">Male</option>
+                                </select>
+                            </div>
+                            <div class="voice-list" id="voice-list">
+                                <div class="voice-loading">
+                                    <div class="spinner"></div>
+                                    <span>Loading voices...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- About Tab -->
+                    <div class="settings-tab-content" id="settings-tab-about">
+                        <div class="about-section">
+                            <div class="about-logo">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+                                </svg>
+                            </div>
+                            <h3>Clara</h3>
+                            <p class="about-tagline">Your Reading Companion</p>
+                            <p class="about-version">Version 1.0.0</p>
+                            <div class="about-features">
+                                <div class="about-feature">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                                        <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                                    </svg>
+                                    <span>Text-to-Speech</span>
+                                </div>
+                                <div class="about-feature">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+                                        <line x1="12" y1="17" x2="12.01" y2="17"/>
+                                    </svg>
+                                    <span>AI Q&A</span>
+                                </div>
+                                <div class="about-feature">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                        <line x1="16" y1="13" x2="8" y2="13"/>
+                                        <line x1="16" y1="17" x2="8" y2="17"/>
+                                    </svg>
+                                    <span>Notes & Highlights</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Context Menu (Library) -->
+        <div id="context-menu" class="context-menu hidden">
+            <button class="context-item" data-action="open">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M5 12h14M12 5l7 7-7 7"/>
+                </svg>
+                Open
+            </button>
+            <button class="context-item" data-action="rename">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 20h9"/>
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                </svg>
+                Rename
+            </button>
+            <button class="context-item" data-action="move">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                </svg>
+                Move to...
+            </button>
+            <div class="context-divider"></div>
+            <button class="context-item danger" data-action="delete">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+                Delete
+            </button>
+        </div>
+
+        <!-- Context Menu (PDF Viewer) -->
+        <div id="pdf-context-menu" class="context-menu hidden">
+            <button class="pdf-context-item" data-action="read-from-here">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+                Read from here
+            </button>
+            <button class="pdf-context-item" data-action="add-note">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="12" y1="18" x2="12" y2="12"/>
+                    <line x1="9" y1="15" x2="15" y2="15"/>
+                </svg>
+                Add note here
+            </button>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div id="loading" class="loading-overlay hidden">
+            <div class="spinner"></div>
+            <p id="loading-msg">Processing...</p>
+        </div>
+
+        <!-- Toast -->
+        <div id="toast" class="toast"></div>
+
+        <!-- Drag indicator -->
+        <div id="drag-indicator" class="drag-indicator hidden">
+            <span id="drag-indicator-text">Moving...</span>
+        </div>
+    </div>
+
+    <audio id="audio" hidden></audio>
+    <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>
