@@ -54,9 +54,25 @@ class Clara {
         this.settings.setup();
         this.toc.setup();
 
+        // Load saved voice preference
+        await this.loadSavedVoice();
+
         // Load library on startup
         await this.library.load();
         this.navigation.updateTitle();
+    }
+
+    async loadSavedVoice() {
+        try {
+            const res = await fetch('/tts/voice');
+            const data = await res.json();
+            if (data.voice_id) {
+                this.state.selectedVoice = data.voice_id;
+                this.voiceSelector.currentVoiceId = data.voice_id;
+            }
+        } catch (err) {
+            console.log('Could not load saved voice:', err);
+        }
     }
 }
 

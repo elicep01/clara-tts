@@ -1537,6 +1537,78 @@ def play_text():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+def split_into_chunks(text, max_words=30):
+    """Split text into chunks, preferring sentence boundaries"""
+    import re
+
+    # Split into sentences
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    chunks = []
+    current_chunk = []
+    current_word_count = 0
+
+    for sentence in sentences:
+        words = sentence.split()
+        word_count = len(words)
+
+        # If adding this sentence exceeds max_words and we have content, start new chunk
+        if current_word_count + word_count > max_words and current_chunk:
+            chunks.append(' '.join(current_chunk))
+            current_chunk = [sentence]
+            current_word_count = word_count
+        else:
+            current_chunk.append(sentence)
+            current_word_count += word_count
+
+    # Add remaining chunk
+    if current_chunk:
+        chunks.append(' '.join(current_chunk))
+
+    return chunks
+
+@app.route('/play-text-chunked', methods=['POST'])
+def play_text_chunked():
+    """Generate audio for first chunk and return chunk info for lazy loading"""
+    data = request.get_json()
+    text = data.get('text', '')
+    voice = data.get('voice', 'female')
+    chunk_index = data.get('chunk_index', 0)  # Which chunk to generate
+
+    if not text:
+        return jsonify({'error': 'No text provided'}), 400
+
+    try:
+        # Split text into chunks
+        chunks = split_into_chunks(text, max_words=30)
+
+        # If requesting a specific chunk
+        if chunk_index < len(chunks):
+            chunk_text = chunks[chunk_index]
+            audio_path = generate_audio(chunk_text, voice)
+
+            with open(audio_path, 'rb') as f:
+                audio_data = f.read()
+
+            os.unlink(audio_path)
+
+            if audio_path.endswith('.mp3'):
+                mimetype = 'audio/mpeg'
+            elif audio_path.endswith('.wav'):
+                mimetype = 'audio/wav'
+            else:
+                mimetype = 'audio/aiff'
+
+            # Return audio with metadata about chunks
+            response = Response(audio_data, mimetype=mimetype)
+            response.headers['X-Total-Chunks'] = str(len(chunks))
+            response.headers['X-Current-Chunk'] = str(chunk_index)
+            return response
+        else:
+            return jsonify({'error': 'Invalid chunk index'}), 400
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/tts/status', methods=['GET'])
 def tts_status():
     """Get TTS engine status"""

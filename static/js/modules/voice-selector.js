@@ -9,6 +9,7 @@ export class VoiceSelectorManager {
         this.currentVoiceId = null;
         this.previewAudio = null;
         this.filteredVoices = [];
+        this.pendingVoiceChange = null; // Track pending voice changes
     }
 
     setup() {
@@ -29,6 +30,11 @@ export class VoiceSelectorManager {
             option.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 const voice = option.dataset.voice;
+
+                // Cancel any pending voice change
+                if (this.pendingVoiceChange) {
+                    this.pendingVoiceChange.cancelled = true;
+                }
 
                 // Update backend voice setting
                 try {
@@ -55,6 +61,10 @@ export class VoiceSelectorManager {
                     const wasPlaying = this.state.isPlaying;
                     const currentWordIndex = this.state.currentWordIndex;
 
+                    // Create cancellation token for this voice change
+                    const changeToken = { cancelled: false };
+                    this.pendingVoiceChange = changeToken;
+
                     // Pause current audio if playing
                     if (wasPlaying && this.clara.reading.audio) {
                         this.clara.reading.audio.pause();
@@ -65,6 +75,14 @@ export class VoiceSelectorManager {
 
                     // Regenerate audio with new voice
                     await this.clara.reading.playPageAudio();
+
+                    // Check if this voice change was cancelled
+                    if (changeToken.cancelled) {
+                        return; // Don't do anything, a newer voice change is in progress
+                    }
+
+                    // Clear the pending change
+                    this.pendingVoiceChange = null;
 
                     // playPageAudio already handles resuming playback, but we need to ensure
                     // it doesn't auto-play if it was paused
@@ -224,6 +242,11 @@ export class VoiceSelectorManager {
 
     async selectVoice(voiceId) {
         try {
+            // Cancel any pending voice change
+            if (this.pendingVoiceChange) {
+                this.pendingVoiceChange.cancelled = true;
+            }
+
             const res = await fetch('/tts/voice', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -256,6 +279,10 @@ export class VoiceSelectorManager {
                 const wasPlaying = this.state.isPlaying;
                 const currentWordIndex = this.state.currentWordIndex;
 
+                // Create cancellation token for this voice change
+                const changeToken = { cancelled: false };
+                this.pendingVoiceChange = changeToken;
+
                 // Pause current audio if playing
                 if (wasPlaying && this.clara.reading.audio) {
                     this.clara.reading.audio.pause();
@@ -266,6 +293,14 @@ export class VoiceSelectorManager {
 
                 // Regenerate audio with new voice
                 await this.clara.reading.playPageAudio();
+
+                // Check if this voice change was cancelled
+                if (changeToken.cancelled) {
+                    return; // Don't do anything, a newer voice change is in progress
+                }
+
+                // Clear the pending change
+                this.pendingVoiceChange = null;
 
                 // playPageAudio already handles resuming playback, but we need to ensure
                 // it doesn't auto-play if it was paused
