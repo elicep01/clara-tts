@@ -1527,41 +1527,49 @@ def play_text():
     char_count = len(text)
     print(f"[TTS] Generating audio: {word_count} words, {char_count} chars")
 
-    # Limit to 500 words for better page coverage (was 300)
-    # Longer timeout for larger texts
-    if word_count > 500:
-        words = text.split()
-        text = ' '.join(words[:500])
-        print(f"[TTS] INFO: Text limited from {word_count} to 500 words")
-        timeout = 45
-    elif word_count > 250:
-        timeout = 30
-    else:
-        timeout = 20
+    # Generous timeout - NEVER fail, reading must always work
+    # ~0.2s per word + 60s buffer, capped at 3 minutes
+    base_timeout = 60
+    timeout = min(base_timeout + (word_count * 0.2), 180)
+    print(f"[TTS] Timeout: {timeout:.0f}s for {word_count} words")
 
-    try:
-        start_time = time.time()
-        audio_path = generate_audio(text, voice, timeout=timeout)
-        gen_time = time.time() - start_time
-        print(f"[TTS] Generated in {gen_time:.2f}s ({word_count} words)")
+    # Progressive fallback: try full text, then truncate if timeout
+    attempts = [
+        (text, word_count, "full text"),
+        (' '.join(text.split()[:400]), 400, "400 words"),
+        (' '.join(text.split()[:250]), 250, "250 words"),
+        (' '.join(text.split()[:100]), 100, "100 words")
+    ]
 
-        with open(audio_path, 'rb') as f:
-            audio_data = f.read()
+    last_error = None
+    for attempt_text, attempt_words, attempt_desc in attempts:
+        try:
+            print(f"[TTS] Attempting: {attempt_desc}")
+            start_time = time.time()
+            audio_path = generate_audio(attempt_text, voice, timeout=timeout)
+            gen_time = time.time() - start_time
+            print(f"[TTS] SUCCESS: {gen_time:.2f}s ({attempt_words} words)")
 
-        os.unlink(audio_path)
+            with open(audio_path, 'rb') as f:
+                audio_data = f.read()
 
-        if audio_path.endswith('.mp3'):
-            mimetype = 'audio/mpeg'
-        elif audio_path.endswith('.wav'):
-            mimetype = 'audio/wav'
-        else:
-            mimetype = 'audio/aiff'
+            os.unlink(audio_path)
 
-        return Response(audio_data, mimetype=mimetype)
+            mimetype = 'audio/mpeg' if audio_path.endswith('.mp3') else 'audio/wav'
+            return Response(audio_data, mimetype=mimetype)
 
-    except Exception as e:
-        print(f"[TTS] Error: {e}")
-        return jsonify({'error': str(e)}), 500
+        except Exception as e:
+            last_error = e
+            print(f"[TTS] Failed {attempt_desc}: {e}")
+            if attempt_words > 100:
+                print(f"[TTS] Retrying with shorter text...")
+                continue
+            else:
+                break
+
+    # All attempts failed
+    print(f"[TTS] FATAL: All attempts failed: {last_error}")
+    return jsonify({'error': f'TTS failed after multiple attempts: {str(last_error)}'}), 500
 
 def split_into_sentence_chunks(text, sentences_per_chunk=3):
     """Split text into small sentence chunks for fast initial playback"""
