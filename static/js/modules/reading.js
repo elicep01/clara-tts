@@ -1116,10 +1116,27 @@ export class ReadingManager {
         }
     }
 
-    onAudioEnded() {
+    async onAudioEnded() {
         this.state.isPlaying = false;
         this.updatePlayPauseButton();
-        this.clara.ui.showToast('Finished reading page');
+
+        // Check if there's a next page to read
+        if (this.state.viewerCurrentPage < this.state.viewerPageCount - 1) {
+            console.log('[AudioEnded] Auto-advancing to next page');
+            this.clara.ui.showToast('Moving to next page...');
+
+            // Save current session before moving
+            this.saveSession();
+
+            // Small delay for user to see the transition
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Advance to next page
+            await this.nextPage();
+        } else {
+            // Last page - finished reading document
+            this.clara.ui.showToast('Finished reading document');
+        }
     }
 
     saveSession() {
