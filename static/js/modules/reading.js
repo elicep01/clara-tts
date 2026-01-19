@@ -571,11 +571,32 @@ export class ReadingManager {
 
     async estimateWordTimings() {
         const duration = await this.getAudioDuration();
-        const totalChars = this.state.words.reduce((sum, w) => sum + w.text.length, 0);
+
+        // Calculate word weights based on syllables/complexity, not just character count
+        const wordWeights = this.state.words.map(word => {
+            const text = word.text;
+            // Base weight on word length
+            let weight = text.length;
+
+            // Add weight for punctuation (causes pauses)
+            if (/[.,;:!?]$/.test(text)) weight += 2;
+
+            // Add weight for longer words (slower pronunciation)
+            if (text.length > 8) weight += text.length * 0.3;
+
+            // Reduce weight for common short words (faster pronunciation)
+            if (/^(a|an|the|is|of|to|in|on|at|by|for)$/i.test(text)) {
+                weight *= 0.7;
+            }
+
+            return Math.max(weight, 0.5);
+        });
+
+        const totalWeight = wordWeights.reduce((sum, w) => sum + w, 0);
 
         let currentTime = 0;
-        this.wordTimings = this.state.words.map(word => {
-            const wordDuration = (word.text.length / totalChars) * duration;
+        this.wordTimings = wordWeights.map((weight) => {
+            const wordDuration = (weight / totalWeight) * duration;
             const timing = {
                 start: currentTime,
                 end: currentTime + wordDuration
