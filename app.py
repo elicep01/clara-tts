@@ -1231,12 +1231,17 @@ def get_pdf_page(doc_id, page_num):
                     img_buffer = io.BytesIO()
                     images[0].save(img_buffer, format='PNG')
                     img_buffer.seek(0)
-                    return send_file(
+                    response = send_file(
                         img_buffer,
                         mimetype='image/png',
                         as_attachment=False,
                         download_name=f'page_{page_num}.png'
                     )
+                    # Prevent caching to ensure fresh images
+                    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+                    response.headers['Pragma'] = 'no-cache'
+                    response.headers['Expires'] = '0'
+                    return response
             except Exception as pdf_err:
                 print(f"Error converting PDF page {page_num}: {pdf_err}")
                 import traceback
