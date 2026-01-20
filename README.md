@@ -13,15 +13,24 @@ A document reader application with text-to-speech capabilities and AI-powered qu
 
 ## Requirements
 
-- Python 3.8 or higher
-- Piper TTS for voice synthesis
-- Ollama for AI question answering
+- **Python 3.10 or higher** (recommended)
+  - Python 3.9.6+ is supported with `requirements-py39.txt`
+  - See [PYTHON_COMPATIBILITY.md](PYTHON_COMPATIBILITY.md) for Python 3.9 setup
 
 ## Installation
+
+### Python 3.10+ (Recommended)
 
 1. Install Python dependencies:
 ```bash
 pip install -r requirements.txt
+```
+
+### Python 3.9.6
+
+1. Use the Python 3.9 compatible requirements:
+```bash
+pip install -r requirements-py39.txt
 ```
 
 2. Install Piper TTS:
