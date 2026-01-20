@@ -104,6 +104,14 @@ export class ViewerManager {
                 return;
             }
 
+            // Clear previous document content before loading new document
+            const pageContent = document.getElementById('page-content');
+            pageContent.innerHTML = '';
+
+            // Reset scroll position to top
+            const documentDisplay = document.getElementById('document-display');
+            documentDisplay.scrollTop = 0;
+
             this.state.viewerDocId = docId;
             this.state.viewerDocName = info.filename;
             this.state.viewerPageCount = info.page_count || 1;
