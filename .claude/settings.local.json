@@ -6,7 +6,18 @@
       "Bash(git rm:*)",
       "Bash(git add:*)",
       "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd timeout handling and automatic truncation for long text\n\n- Added 45-second timeout for audio generation to prevent hanging\n- Automatically truncate pages longer than 500 words\n- Show different loading message for large pages\n- Add detailed logging for TTS generation time and text length\n- Chunked endpoint available for future optimization\n\nThis prevents the app from hanging on very long pages and gives users immediate feedback.\nEOF\n\\)\")",
-      "Bash(git push)"
+      "Bash(git push)",
+      "Bash(curl:*)",
+      "Bash(git commit:*)",
+      "Bash(git log:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(git push:*)",
+      "Bash(zip -r ../clara-tts-v1.0.zip . -x \"*.pyc\" -x \"__pycache__/*\" -x \"*.git/*\" -x \".claude/*\" -x \"check_docs.py\" -x \"debug_db.py\" -x \"fix_db.py\" -x \"*.DS_Store\" -x \"venv/*\" -x \"*.egg-info/*\")",
+      "Bash(zip:*)",
+      "Bash(chmod:*)"
+    ],
+    "additionalDirectories": [
+      "/Users/elicepriyadarshini/Desktop"
     ]
   }
 }
