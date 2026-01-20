@@ -29,15 +29,19 @@ export class TOCManager {
     }
 
     showTOC() {
+        console.log(`[TOC] Showing TOC tab, tocData.length = ${this.tocData.length}`);
+
         document.getElementById('btn-show-toc').classList.add('active');
         document.getElementById('btn-show-thumbnails').classList.remove('active');
 
         document.getElementById('page-list').classList.add('hidden');
 
         if (this.tocData.length > 0) {
+            console.log('[TOC] Showing TOC list');
             document.getElementById('toc-list').classList.remove('hidden');
             document.getElementById('toc-empty').classList.add('hidden');
         } else {
+            console.log('[TOC] Showing empty state');
             document.getElementById('toc-list').classList.add('hidden');
             document.getElementById('toc-empty').classList.remove('hidden');
         }
@@ -50,29 +54,38 @@ export class TOCManager {
             const res = await fetch(`/document/${docId}/toc`);
             const data = await res.json();
 
+            console.log('[TOC] Received TOC data:', data);
+
             if (data.toc && data.toc.length > 0) {
                 this.tocData = data.toc;
+                console.log(`[TOC] Loaded ${this.tocData.length} items`);
                 this.render();
             } else {
                 this.tocData = [];
                 document.getElementById('toc-list').innerHTML = '';
+                console.log('[TOC] No TOC items found');
             }
         } catch (err) {
-            console.log('Could not load TOC:', err);
+            console.error('[TOC] Error loading TOC:', err);
             this.tocData = [];
         }
     }
 
     render() {
+        console.log(`[TOC] Rendering ${this.tocData.length} items`);
         const list = document.getElementById('toc-list');
         list.innerHTML = '';
 
         // Backend returns flat items with 'level' property (1, 2, 3, etc.)
         // We use level directly for indentation depth
-        this.tocData.forEach(item => {
+        this.tocData.forEach((item, index) => {
             const tocItem = this.createTOCItem(item);
             list.appendChild(tocItem);
+            if (index < 3) {
+                console.log(`[TOC] Rendered item ${index}: ${item.title} (level ${item.level}, page ${item.page})`);
+            }
         });
+        console.log('[TOC] Render complete');
     }
 
     createTOCItem(item) {

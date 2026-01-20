@@ -10,6 +10,7 @@ import queue
 import sqlite3
 import uuid
 import io
+import re
 from pathlib import Path
 from datetime import datetime
 import webview
@@ -22,6 +23,14 @@ from chromadb.config import Settings
 import subprocess
 import tempfile
 import time
+
+# Import PyMuPDF for PDF processing and TOC extraction
+try:
+    import fitz  # PyMuPDF
+    PYMUPDF_AVAILABLE = True
+except ImportError:
+    PYMUPDF_AVAILABLE = False
+    print("Warning: PyMuPDF not installed. PDF TOC extraction will be limited.")
 
 # Configuration
 CLARA_HOME = Path.home() / 'Documents' / 'Clara'
@@ -2306,6 +2315,8 @@ def get_document_toc(doc_id):
     2. Smart text analysis for chapters, sections, and headings
     3. Research paper structure detection
     """
+    print(f"\n[TOC] Request for document: {doc_id}")
+
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute('SELECT file_path FROM documents WHERE id = ?', (doc_id,))
@@ -2313,22 +2324,32 @@ def get_document_toc(doc_id):
     conn.close()
 
     if not row:
+        print(f"[TOC] Document not found: {doc_id}")
         return jsonify({'error': 'Document not found'}), 404
 
     filepath = row['file_path']
+    print(f"[TOC] File path: {filepath}")
+
     if not filepath.endswith('.pdf'):
+        print(f"[TOC] Not a PDF file: {filepath}")
         return jsonify({'error': 'TOC only available for PDFs', 'toc': []}), 200
 
-    try:
-        import fitz  # PyMuPDF
-        import re
+    if not PYMUPDF_AVAILABLE:
+        print(f"[TOC] PyMuPDF not available")
+        return jsonify({'error': 'PyMuPDF not installed', 'toc': []}), 200
 
+    try:
+        print(f"[TOC] Opening PDF: {filepath}")
         doc = fitz.open(filepath)
+        print(f"[TOC] PDF has {len(doc)} pages")
 
         # Always use manual extraction for better accuracy
         # The native PDF TOC is often incomplete or incorrect
         toc_items = extract_smart_toc(doc)
         doc.close()
+
+        print(f"[TOC] Extracted {len(toc_items)} TOC items")
+        print(f"[TOC] Returning response: {len(toc_items)} items")
 
         return jsonify({
             'toc': toc_items,
@@ -2336,30 +2357,47 @@ def get_document_toc(doc_id):
             'source': 'text_analysis' if toc_items else 'none'
         })
 
-    except ImportError:
-        return jsonify({'error': 'PyMuPDF not installed', 'toc': []}), 200
     except Exception as e:
+        print(f"[TOC] Error extracting TOC: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e), 'toc': []}), 200
 
 
 def extract_smart_toc(doc):
     """Extract TOC by analyzing text content, fonts, and patterns.
 
-    Handles:
-    - Books with chapter headings
-    - Research papers (Abstract, Introduction, Methods, etc.)
-    - Numbered sections (1., 1.1, 1.1.1, etc.)
-    - Roman numeral sections
-    - Bold/large text headings
-    """
-    import re
+    Focuses on clean, hierarchical extraction by detecting:
+    1. Parts/chapters at top of pages
+    2. Major section headings (large font, isolated lines)
+    3. Numbered sections
 
+    Filters out body text aggressively.
+    """
     toc_items = []
     total_pages = len(doc)
 
-    # Common research paper sections (case insensitive)
+    # First pass: detect average body text font size
+    body_text_sizes = []
+    for page_num in range(min(10, total_pages)):
+        page = doc[page_num]
+        blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
+        for block in blocks:
+            if "lines" not in block:
+                continue
+            for line in block["lines"]:
+                for span in line["spans"]:
+                    if len(span["text"].strip()) > 20:  # Longer text is likely body
+                        body_text_sizes.append(span["size"])
+
+    avg_body_size = sum(body_text_sizes) / len(body_text_sizes) if body_text_sizes else 12
+    heading_threshold = avg_body_size + 1.0  # Headings should be at least 1pt larger
+
+    print(f"[TOC] Average body text size: {avg_body_size:.1f}pt, heading threshold: {heading_threshold:.1f}pt")
+
+    # Common research paper sections
     research_sections = [
-        'abstract', 'introduction', 'background', 'related work',
+        'preface', 'foreword', 'abstract', 'introduction', 'background', 'related work',
         'literature review', 'methodology', 'methods', 'materials and methods',
         'experimental setup', 'experiment', 'experiments', 'approach',
         'proposed method', 'proposed approach', 'model', 'architecture',
@@ -2371,30 +2409,23 @@ def extract_smart_toc(doc):
 
     # Chapter/section patterns
     patterns = {
-        # "Chapter 1", "CHAPTER I", "Chapter One"
+        # "Part 1", "PART I" - highest level
+        'part': re.compile(r'^(?:part)\s*(\d+|[ivxlc]+|one|two|three|four|five)[\s:.\-]*(.*)$', re.IGNORECASE),
+        # "Chapter 1", "CHAPTER I"
         'chapter': re.compile(r'^(?:chapter|chap\.?)\s*(\d+|[ivxlc]+|one|two|three|four|five|six|seven|eight|nine|ten)[\s:.\-]*(.*)$', re.IGNORECASE),
-        # "Part 1", "PART I"
-        'part': re.compile(r'^(?:part)\s*(\d+|[ivxlc]+|one|two|three|four|five|six|seven|eight|nine|ten)[\s:.\-]*(.*)$', re.IGNORECASE),
         # "1. Introduction", "1 Introduction"
         'numbered_section': re.compile(r'^(\d{1,2})[\.\s]+([A-Z][A-Za-z\s]{2,50})$'),
-        # "1.1 Background", "1.1. Background"
+        # "1.1 Background"
         'subsection': re.compile(r'^(\d{1,2}\.\d{1,2})[\.\s]+([A-Z][A-Za-z\s]{2,50})$'),
         # "1.1.1 Details"
         'subsubsection': re.compile(r'^(\d{1,2}\.\d{1,2}\.\d{1,2})[\.\s]+([A-Z][A-Za-z\s]{2,50})$'),
-        # "Section 1", "SECTION I"
-        'section_label': re.compile(r'^(?:section)\s*(\d+|[ivxlc]+)[\s:.\-]*(.*)$', re.IGNORECASE),
-        # "I. Introduction" (Roman numerals)
-        'roman_section': re.compile(r'^([IVXLC]+)[\.\s]+([A-Z][A-Za-z\s]{2,50})$'),
-        # "A. First Topic" (Letter sections)
-        'letter_section': re.compile(r'^([A-H])[\.\s]+([A-Z][A-Za-z\s]{2,50})$'),
     }
 
     seen_titles = set()
     page_headings = []
 
-    # Analyze each page (scan all pages, but max 100 for performance)
+    # Scan pages
     pages_to_scan = min(total_pages, 100)
-
     print(f"[TOC] Scanning {pages_to_scan} pages out of {total_pages} total")
 
     for page_num in range(pages_to_scan):
@@ -2434,20 +2465,20 @@ def extract_smart_toc(doc):
                     continue
 
                 # Skip lines that are too long (likely body text)
-                if len(line_text) > 100:
+                if len(line_text) > 80:
                     continue
 
                 # Get line position
                 line_y = line["bbox"][1]
                 rel_y = line_y / page_height
 
-                # Skip footers (bottom 10%)
-                if rel_y > 0.90:
+                # Skip headers (top 5%) and footers (bottom 10%) - often page numbers
+                if rel_y < 0.05 or rel_y > 0.90:
                     continue
 
                 # Check for heading patterns
                 heading_info = detect_heading(line_text, max_font_size, is_bold,
-                                             patterns, research_sections, rel_y)
+                                             patterns, research_sections, rel_y, heading_threshold)
 
                 if heading_info:
                     level, title = heading_info
@@ -2466,6 +2497,7 @@ def extract_smart_toc(doc):
                         'font_size': max_font_size,
                         'is_bold': is_bold
                     })
+                    print(f"[TOC] Found heading on page {page_num + 1}: {title} (level={level}, size={max_font_size:.1f}, bold={is_bold})")
 
     # Post-process headings to normalize levels
     if page_headings:
@@ -2477,15 +2509,16 @@ def extract_smart_toc(doc):
     return toc_items
 
 
-def detect_heading(text, font_size, is_bold, patterns, research_sections, rel_y):
-    """Detect if a line is a heading and return (level, title) or None."""
-    import re
+def detect_heading(text, font_size, is_bold, patterns, research_sections, rel_y, heading_threshold):
+    """Detect if a line is a heading and return (level, title) or None.
 
+    Much more selective - only returns headings that are clearly structural markers.
+    """
     text = text.strip()
 
     # Skip common non-heading patterns
     skip_patterns = [
-        r'^\d+$',  # Just a number (page number)
+        r'^\d+$',  # Just a number
         r'^page\s*\d+',  # "Page 1"
         r'^\d+\s*of\s*\d+',  # "1 of 10"
         r'^figure\s*\d+',  # "Figure 1"
@@ -2493,24 +2526,25 @@ def detect_heading(text, font_size, is_bold, patterns, research_sections, rel_y)
         r'^fig\.\s*\d+',  # "Fig. 1"
         r'^\[.*\]$',  # "[1]" references
         r'^https?://',  # URLs
-        r'^www\.',  # URLs
         r'@.*\.(com|edu|org)',  # Emails
+        r'.*[.!?",;]$',  # Ends with punctuation (likely body text)
+        r'^(the|a|an|and|or|but|in|on|at|to|for|of|with|from)\s',  # Starts with article/preposition
     ]
 
     for pattern in skip_patterns:
         if re.match(pattern, text, re.IGNORECASE):
             return None
 
-    # Check for Part (level 0)
+    # Priority 1: Part markers (highest level)
     match = patterns['part'].match(text)
     if match:
         part_num, part_title = match.groups()
         title = f"Part {part_num}"
         if part_title.strip():
             title += f": {part_title.strip()}"
-        return (1, title)
+        return (0, title)  # Level 0 for parts
 
-    # Check for Chapter (level 1)
+    # Priority 2: Chapter markers
     match = patterns['chapter'].match(text)
     if match:
         chap_num, chap_title = match.groups()
@@ -2519,82 +2553,35 @@ def detect_heading(text, font_size, is_bold, patterns, research_sections, rel_y)
             title += f": {chap_title.strip()}"
         return (1, title)
 
-    # Check for "Section X" label
-    match = patterns['section_label'].match(text)
-    if match:
-        sec_num, sec_title = match.groups()
-        title = f"Section {sec_num}"
-        if sec_title.strip():
-            title += f": {sec_title.strip()}"
-        return (1, title)
-
-    # Check for subsubsection (1.1.1) first (more specific)
-    match = patterns['subsubsection'].match(text)
-    if match:
-        return (3, text)
-
-    # Check for subsection (1.1)
-    match = patterns['subsection'].match(text)
-    if match:
-        return (2, text)
-
-    # Check for numbered section (1.)
+    # Priority 3: Numbered sections (1. 2. 3.)
     match = patterns['numbered_section'].match(text)
     if match:
         return (1, text)
 
-    # Check for Roman numeral section
-    match = patterns['roman_section'].match(text)
-    if match:
-        return (1, text)
-
-    # Check for letter section
-    match = patterns['letter_section'].match(text)
+    # Priority 4: Subsections (1.1, 1.2)
+    match = patterns['subsection'].match(text)
     if match:
         return (2, text)
 
-    # Check for research paper sections
+    # Priority 5: Sub-subsections (1.1.1)
+    match = patterns['subsubsection'].match(text)
+    if match:
+        return (3, text)
+
+    # Priority 6: Research paper sections (exact matches only)
     text_lower = text.lower().strip()
-
-    # Remove leading numbers or symbols for comparison
-    cleaned_text = re.sub(r'^[\d\.\s\-\*]+', '', text_lower).strip()
-
-    for section in research_sections:
-        if cleaned_text == section or cleaned_text.startswith(section + ' '):
-            # Determine level based on section importance
-            if section in ['abstract', 'introduction', 'conclusion', 'conclusions',
-                          'references', 'bibliography', 'acknowledgment', 'acknowledgments',
-                          'acknowledgement', 'acknowledgements']:
-                return (1, text)
-            else:
-                return (1, text)
-
-    # Check for all-caps headings (common in books/papers)
-    if text.isupper() and len(text) > 3 and len(text) < 60:
-        # Likely a chapter or section heading
-        # Title case it for better display
+    if text_lower in research_sections:
         return (1, text.title())
 
-    # Check for large/bold text that looks like a heading
-    # Be more aggressive - check anywhere on page, not just top 40%
-    if is_bold and font_size >= 11:  # Lowered from 12 to 11
-        # Check if it looks like a title (starts with capital, reasonable length)
-        if text[0].isupper() and len(text) > 5 and len(text) < 80:
-            # Skip if it looks like regular sentence (ends with period, comma, etc.)
-            if not text.endswith(('.', ',', ';')):
-                # Determine level based on font size and position
-                if font_size >= 16:
-                    return (1, text)  # Large heading
-                elif font_size >= 13:
-                    return (2, text)  # Medium heading
-                else:
-                    return (3, text)  # Small heading
-
-    # Fallback: Large text (even not bold) in top 30% could be heading
-    if rel_y < 0.3 and font_size >= 14:
-        if text[0].isupper() and len(text) > 3 and len(text) < 80:
-            if not text.endswith(('.', ',', ';')):
-                return (1, text)
+    # Priority 7: Standalone headings at top of page
+    # Must be in top 40% of page, large font, and short
+    if rel_y < 0.4 and font_size >= heading_threshold and len(text) >= 5 and len(text) <= 60:
+        # Must start with capital letter
+        if text[0].isupper():
+            # Check if it looks like a proper heading (not a sentence fragment)
+            words = text.split()
+            if len(words) <=10 and len(words) >= 1:  # Reasonable heading length
+                return (2, text)
 
     return None
 
