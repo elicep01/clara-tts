@@ -32,6 +32,14 @@ except ImportError:
     PYMUPDF_AVAILABLE = False
     print("Warning: PyMuPDF not installed. PDF TOC extraction will be limited.")
 
+# Import pdf2image for PDF page rendering
+try:
+    from pdf2image import convert_from_path
+    PDF2IMAGE_AVAILABLE = True
+except ImportError:
+    PDF2IMAGE_AVAILABLE = False
+    print("Warning: pdf2image not installed. PDF pages will display as text only.")
+
 # Configuration
 CLARA_HOME = Path.home() / 'Documents' / 'Clara'
 DOCUMENTS_FOLDER = CLARA_HOME / 'documents'
@@ -1216,16 +1224,25 @@ def get_pdf_page(doc_id, page_num):
 
     try:
         # Try using pdf2image (requires poppler)
-        try:
-            from pdf2image import convert_from_path
-            images = convert_from_path(filepath, first_page=page_num + 1, last_page=page_num + 1, dpi=150)
-            if images:
-                img_buffer = io.BytesIO()
-                images[0].save(img_buffer, format='PNG')
-                img_buffer.seek(0)
-                return send_file(img_buffer, mimetype='image/png')
-        except ImportError:
-            pass
+        if PDF2IMAGE_AVAILABLE:
+            try:
+                images = convert_from_path(filepath, first_page=page_num + 1, last_page=page_num + 1, dpi=150)
+                if images:
+                    img_buffer = io.BytesIO()
+                    images[0].save(img_buffer, format='PNG')
+                    img_buffer.seek(0)
+                    return send_file(
+                        img_buffer,
+                        mimetype='image/png',
+                        as_attachment=False,
+                        download_name=f'page_{page_num}.png'
+                    )
+            except Exception as pdf_err:
+                print(f"Error converting PDF page {page_num}: {pdf_err}")
+                import traceback
+                traceback.print_exc()
+        else:
+            print("pdf2image not available, using text fallback")
 
         # Fallback: return page text as JSON
         reader = pypdf.PdfReader(filepath)
@@ -1240,6 +1257,9 @@ def get_pdf_page(doc_id, page_num):
         })
 
     except Exception as e:
+        print(f"Error in get_pdf_page: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/document/<doc_id>/thumbnail/<int:page_num>', methods=['GET'])
@@ -1263,8 +1283,10 @@ def get_pdf_thumbnail(doc_id, page_num):
     if thumb_path.exists():
         return send_file(thumb_path, mimetype='image/png')
 
+    if not PDF2IMAGE_AVAILABLE:
+        return jsonify({'error': 'pdf2image not available', 'page': page_num}), 200
+
     try:
-        from pdf2image import convert_from_path
         images = convert_from_path(filepath, first_page=page_num + 1, last_page=page_num + 1, dpi=50)
         if images:
             # Resize for thumbnail
@@ -1272,10 +1294,10 @@ def get_pdf_thumbnail(doc_id, page_num):
             thumb.thumbnail((120, 160))
             thumb.save(thumb_path, format='PNG')
             return send_file(thumb_path, mimetype='image/png')
-    except ImportError:
-        # Return a placeholder
-        return jsonify({'error': 'pdf2image not available', 'page': page_num}), 200
     except Exception as e:
+        print(f"Error creating thumbnail for page {page_num}: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 @app.route('/document/<doc_id>/page/<int:page_num>/text', methods=['GET'])

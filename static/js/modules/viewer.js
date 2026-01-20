@@ -282,6 +282,19 @@ export class ViewerManager {
                 img.onload = async () => {
                     await this.createContinuousPageWordOverlay(i, pageWrapper);
                 };
+
+                // Handle image loading errors
+                img.onerror = async () => {
+                    console.error(`Failed to load page ${i} image from: ${img.src}`);
+                    // Try to load as text fallback
+                    try {
+                        const textRes = await fetch(`/document/${this.state.viewerDocId}/page/${i}/text`);
+                        const data = await textRes.json();
+                        pageWrapper.innerHTML = `<div class="text-content">${this.clara.ui.escapeHtml(data.text || 'No content')}</div>`;
+                    } catch (err) {
+                        pageWrapper.innerHTML = `<div class="text-content">Failed to load page ${i + 1}</div>`;
+                    }
+                };
             } else {
                 try {
                     const textRes = await fetch(`/document/${this.state.viewerDocId}/page/${i}/text`);
