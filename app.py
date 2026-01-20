@@ -2392,8 +2392,10 @@ def extract_smart_toc(doc):
     seen_titles = set()
     page_headings = []
 
-    # Analyze each page (limit to first 50 pages for performance)
-    pages_to_scan = min(total_pages, 50)
+    # Analyze each page (scan all pages, but max 100 for performance)
+    pages_to_scan = min(total_pages, 100)
+
+    print(f"[TOC] Scanning {pages_to_scan} pages out of {total_pages} total")
 
     for page_num in range(pages_to_scan):
         page = doc[page_num]
@@ -2468,6 +2470,9 @@ def extract_smart_toc(doc):
     # Post-process headings to normalize levels
     if page_headings:
         toc_items = normalize_heading_levels(page_headings)
+        print(f"[TOC] Found {len(toc_items)} headings")
+    else:
+        print(f"[TOC] No headings found")
 
     return toc_items
 
@@ -2571,12 +2576,24 @@ def detect_heading(text, font_size, is_bold, patterns, research_sections, rel_y)
         return (1, text.title())
 
     # Check for large/bold text that looks like a heading
-    # (only in top 40% of page, as headings typically appear there)
-    if rel_y < 0.4 and is_bold and font_size >= 12:
+    # Be more aggressive - check anywhere on page, not just top 40%
+    if is_bold and font_size >= 11:  # Lowered from 12 to 11
         # Check if it looks like a title (starts with capital, reasonable length)
         if text[0].isupper() and len(text) > 5 and len(text) < 80:
-            # Skip if it looks like regular sentence
-            if not text.endswith(('.', ',', ';', ':')):
+            # Skip if it looks like regular sentence (ends with period, comma, etc.)
+            if not text.endswith(('.', ',', ';')):
+                # Determine level based on font size and position
+                if font_size >= 16:
+                    return (1, text)  # Large heading
+                elif font_size >= 13:
+                    return (2, text)  # Medium heading
+                else:
+                    return (3, text)  # Small heading
+
+    # Fallback: Large text (even not bold) in top 30% could be heading
+    if rel_y < 0.3 and font_size >= 14:
+        if text[0].isupper() and len(text) > 3 and len(text) < 80:
+            if not text.endswith(('.', ',', ';')):
                 return (1, text)
 
     return None
