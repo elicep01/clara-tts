@@ -471,9 +471,9 @@ export class ReadingManager {
             return;
         }
 
-        // Always use full audio for accurate word timing
-        // Chunked audio breaks word-level synchronization
-        return this.playPageAudioFull();
+        // Use chunked audio for instant start (1-2 seconds)
+        // Full audio is slower (30-60 seconds) but cached for subsequent plays
+        return this.playPageAudioChunked();
     }
 
     async playPageAudioFull() {

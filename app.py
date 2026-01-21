@@ -11,6 +11,7 @@ import sqlite3
 import uuid
 import io
 import re
+import hashlib
 from pathlib import Path
 from datetime import datetime
 import webview
@@ -46,6 +47,7 @@ DOCUMENTS_FOLDER = CLARA_HOME / 'documents'
 THUMBNAILS_FOLDER = CLARA_HOME / 'thumbnails'
 VOICES_FOLDER = CLARA_HOME / 'voices'
 MODELS_FOLDER = CLARA_HOME / 'models'
+AUDIO_CACHE_FOLDER = CLARA_HOME / 'audio_cache'
 DATABASE_PATH = CLARA_HOME / 'clara.db'
 ALLOWED_EXTENSIONS = {'pdf', 'txt', 'md'}
 
@@ -253,6 +255,7 @@ def init_storage():
     THUMBNAILS_FOLDER.mkdir(exist_ok=True)
     VOICES_FOLDER.mkdir(exist_ok=True)
     MODELS_FOLDER.mkdir(exist_ok=True)
+    AUDIO_CACHE_FOLDER.mkdir(exist_ok=True)
     init_database()
 
 def init_database():
@@ -1550,7 +1553,7 @@ def get_page_words(doc_id, page_num):
 
 @app.route('/play-text', methods=['POST'])
 def play_text():
-    """Generate audio for arbitrary text (used for page-based reading)"""
+    """Generate audio for arbitrary text (used for page-based reading) with caching"""
     data = request.get_json()
     text = data.get('text', '')
     voice = data.get('voice', 'female')
@@ -1558,10 +1561,19 @@ def play_text():
     if not text:
         return jsonify({'error': 'No text provided'}), 400
 
+    # Create cache key from text + voice
+    cache_key = hashlib.md5(f"{text}:{voice}".encode()).hexdigest()
+    cache_file = AUDIO_CACHE_FOLDER / f"{cache_key}.mp3"
+
+    # Check cache first
+    if cache_file.exists():
+        print(f"[TTS CACHE HIT] Returning cached audio ({cache_key[:8]}...)")
+        return send_file(cache_file, mimetype='audio/mpeg')
+
     # Log text length for debugging
     word_count = len(text.split())
     char_count = len(text)
-    print(f"[TTS] Generating audio: {word_count} words, {char_count} chars")
+    print(f"[TTS CACHE MISS] Generating audio: {word_count} words, {char_count} chars")
 
     # Generous timeout - NEVER fail, reading must always work
     # ~0.2s per word + 60s buffer, capped at 3 minutes
@@ -1590,6 +1602,13 @@ def play_text():
                 audio_data = f.read()
 
             os.unlink(audio_path)
+
+            # Save to cache for future use
+            try:
+                cache_file.write_bytes(audio_data)
+                print(f"[TTS] Cached audio: {cache_key[:8]}...")
+            except Exception as cache_error:
+                print(f"[TTS] Warning: Failed to cache audio: {cache_error}")
 
             mimetype = 'audio/mpeg' if audio_path.endswith('.mp3') else 'audio/wav'
             return Response(audio_data, mimetype=mimetype)
