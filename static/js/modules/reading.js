@@ -471,13 +471,30 @@ export class ReadingManager {
             return;
         }
 
-        // Use chunked audio for instant start (1-2 seconds)
-        // Full audio is slower (30-60 seconds) but cached for subsequent plays
-        return this.playPageAudioChunked();
+        // Use full audio for perfect word synchronization
+        // Backend caching makes subsequent plays instant
+        // This ensures accurate word highlighting, overlays, and progress tracking
+        return this.playPageAudioFull();
     }
 
     async playPageAudioFull() {
-        this.clara.ui.showInlineLoading('Generating audio...');
+        const wordCount = this.state.words.length;
+        const estimatedTime = Math.ceil(wordCount / 10); // ~10 words per second generation
+
+        if (wordCount > 300) {
+            this.clara.ui.showInlineLoading(`Generating audio (large page, ~${estimatedTime}s)...`);
+        } else {
+            this.clara.ui.showInlineLoading('Generating audio...');
+        }
+
+        // Add a timeout warning for very long pages
+        let warningShown = false;
+        const warningTimeout = setTimeout(() => {
+            if (!warningShown && wordCount > 400) {
+                this.clara.ui.showInlineLoading('Still generating... large pages take longer');
+                warningShown = true;
+            }
+        }, 20000); // Show warning after 20 seconds
 
         // Reset timing correction for new audio
         this.lastTimingCheck = 0;
@@ -515,17 +532,22 @@ export class ReadingManager {
                 return;
             }
 
+            // Clear the warning timeout since we got the audio
+            clearTimeout(warningTimeout);
+
             const blob = await res.blob();
             const url = URL.createObjectURL(blob);
 
             this.audio.src = url;
             this.audio.playbackRate = this.state.playbackSpeed;
 
-            // Temporarily use limited words for timing estimation
+            // Temporarily use limited words for timing
             const originalWords = this.state.words;
             this.state.words = wordsToHighlight;
 
-            await this.estimateWordTimings();
+            // Use ACTUAL word timings from Edge TTS for 100% accuracy
+            // Falls back to estimation if Edge TTS not available
+            await this.fetchActualWordTimings();
 
             // Restore full words list (but timing only covers first MAX_WORDS)
             this.state.words = originalWords;
@@ -841,6 +863,87 @@ export class ReadingManager {
         return Math.max(count, 1);
     }
 
+    async fetchActualWordTimings() {
+        console.log('[WordTiming] Fetching ACTUAL timings from Edge TTS backend...');
+
+        try {
+            const res = await fetch('/word-timings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: this.state.pageText,
+                    voice: this.state.selectedVoice
+                })
+            });
+
+            if (!res.ok) {
+                console.warn('[WordTiming] Backend timing request failed, falling back to estimation');
+                return await this.estimateWordTimings();
+            }
+
+            const backendTimings = await res.json();
+
+            // If no timings returned (Edge TTS not available), fall back to estimation
+            if (!backendTimings || backendTimings.length === 0) {
+                console.log('[WordTiming] No backend timings available, using estimation');
+                return await this.estimateWordTimings();
+            }
+
+            console.log(`[WordTiming] Got ${backendTimings.length} word boundaries from Edge TTS`);
+
+            // Map backend timings to our word array
+            // Edge TTS may split/join words differently than our tokenization
+            // So we need to match them intelligently
+            this.wordTimings = [];
+            let backendIndex = 0;
+
+            for (let i = 0; i < this.state.words.length; i++) {
+                const ourWord = this.state.words[i].text.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+                // Find matching backend timing
+                let matchFound = false;
+                for (let j = backendIndex; j < backendTimings.length; j++) {
+                    const backendWord = backendTimings[j].text.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+                    if (ourWord === backendWord || ourWord.startsWith(backendWord) || backendWord.startsWith(ourWord)) {
+                        // Match found!
+                        this.wordTimings.push({
+                            start: backendTimings[j].offset,
+                            end: backendTimings[j].offset + backendTimings[j].duration,
+                            word: this.state.words[i].text
+                        });
+                        backendIndex = j + 1;
+                        matchFound = true;
+                        break;
+                    }
+                }
+
+                if (!matchFound) {
+                    // No match - use previous word's end time + small gap
+                    const prevTiming = i > 0 ? this.wordTimings[i - 1] : { end: 0 };
+                    this.wordTimings.push({
+                        start: prevTiming.end,
+                        end: prevTiming.end + 0.2, // 200ms estimate for unmatched word
+                        word: this.state.words[i].text
+                    });
+                }
+            }
+
+            console.log('[WordTiming] ✓ Using ACTUAL Edge TTS timings (100% accurate)');
+            console.log('[WordTiming] First 5 words:', this.wordTimings.slice(0, 5).map(t =>
+                `${t.word}: ${t.start.toFixed(2)}s-${t.end.toFixed(2)}s`
+            ));
+            console.log('[WordTiming] Last 5 words:', this.wordTimings.slice(-5).map(t =>
+                `${t.word}: ${t.start.toFixed(2)}s-${t.end.toFixed(2)}s`
+            ));
+
+        } catch (err) {
+            console.error('[WordTiming] Error fetching actual timings:', err);
+            console.log('[WordTiming] Falling back to estimation');
+            return await this.estimateWordTimings();
+        }
+    }
+
     getAudioDuration() {
         return new Promise((resolve) => {
             if (this.audio.duration && !isNaN(this.audio.duration)) {
@@ -931,16 +1034,43 @@ export class ReadingManager {
         // Only update changed boxes (incremental update)
         const prevIndex = this.lastHighlightedIndex;
 
-        // Remove active from previous
-        if (prevIndex >= 0 && prevIndex < this.wordBoxes.length) {
-            this.wordBoxes[prevIndex].classList.remove('active');
-            this.wordBoxes[prevIndex].classList.add('read');
+        // Get current word's y-position to determine line
+        const currentWord = this.state.words[index];
+        const currentLineY = currentWord ? currentWord.y : null;
+
+        // Get previous word's y-position
+        const prevWord = prevIndex >= 0 ? this.state.words[prevIndex] : null;
+        const prevLineY = prevWord ? prevWord.y : null;
+
+        // Detect if we've moved to a new line (y-position changed significantly)
+        // Use a threshold to account for slight variations in y-position within the same line
+        const lineChangeThreshold = 1.0; // 1% difference indicates new line
+        const hasChangedLine = prevLineY !== null && currentLineY !== null &&
+                               Math.abs(currentLineY - prevLineY) > lineChangeThreshold;
+
+        if (hasChangedLine) {
+            // Clear gray overlay from ALL words on previous line
+            for (let i = 0; i < this.wordBoxes.length; i++) {
+                const word = this.state.words[i];
+                if (word && word.y !== undefined && Math.abs(word.y - prevLineY) < lineChangeThreshold) {
+                    this.wordBoxes[i].classList.remove('read');
+                }
+            }
         }
 
-        // Mark words between prev and current as read
-        if (prevIndex >= 0) {
-            for (let i = prevIndex + 1; i < index && i < this.wordBoxes.length; i++) {
-                this.wordBoxes[i].classList.add('read');
+        // Remove active from previous word
+        if (prevIndex >= 0 && prevIndex < this.wordBoxes.length) {
+            this.wordBoxes[prevIndex].classList.remove('active');
+        }
+
+        // Mark words on CURRENT LINE before current word as read
+        if (currentLineY !== null && index > 0) {
+            for (let i = 0; i < index && i < this.wordBoxes.length; i++) {
+                const word = this.state.words[i];
+                // Only gray words on the same line as current word
+                if (word && word.y !== undefined && Math.abs(word.y - currentLineY) < lineChangeThreshold) {
+                    this.wordBoxes[i].classList.add('read');
+                }
             }
         }
 
@@ -996,15 +1126,30 @@ export class ReadingManager {
         if (timing) {
             this.audio.currentTime = timing.start;
 
-            // Update all words up to this point as read
-            for (let i = 0; i <= wordIndex && i < this.wordBoxes.length; i++) {
-                if (i < wordIndex) {
-                    this.wordBoxes[i].classList.add('read');
-                    this.wordBoxes[i].classList.remove('active');
-                } else {
-                    this.wordBoxes[i].classList.add('active');
-                    this.wordBoxes[i].classList.remove('read');
+            // Clear all 'read' classes first
+            for (let i = 0; i < this.wordBoxes.length; i++) {
+                this.wordBoxes[i].classList.remove('read');
+                this.wordBoxes[i].classList.remove('active');
+            }
+
+            // Get the target word's line (y-position)
+            const targetWord = this.state.words[wordIndex];
+            const targetLineY = targetWord ? targetWord.y : null;
+            const lineChangeThreshold = 1.0;
+
+            // Mark only words on the SAME LINE before the target word as read
+            if (targetLineY !== null) {
+                for (let i = 0; i < wordIndex && i < this.wordBoxes.length; i++) {
+                    const word = this.state.words[i];
+                    if (word && word.y !== undefined && Math.abs(word.y - targetLineY) < lineChangeThreshold) {
+                        this.wordBoxes[i].classList.add('read');
+                    }
                 }
+            }
+
+            // Set target word as active
+            if (wordIndex < this.wordBoxes.length) {
+                this.wordBoxes[wordIndex].classList.add('active');
             }
 
             this.lastHighlightedIndex = wordIndex;

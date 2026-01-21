@@ -1626,6 +1626,97 @@ def play_text():
     print(f"[TTS] FATAL: All attempts failed: {last_error}")
     return jsonify({'error': f'TTS failed after multiple attempts: {str(last_error)}'}), 500
 
+@app.route('/word-timings', methods=['POST'])
+def word_timings():
+    """Get word-level timing data from Edge TTS for accurate synchronization"""
+    data = request.get_json()
+    text = data.get('text', '')
+    voice = data.get('voice', 'female')
+
+    if not text:
+        return jsonify({'error': 'No text provided'}), 400
+
+    # Create cache key for timings
+    cache_key = hashlib.md5(f"{text}:{voice}:timings".encode()).hexdigest()
+    cache_file = AUDIO_CACHE_FOLDER / f"{cache_key}.json"
+
+    # Check cache first
+    if cache_file.exists():
+        print(f"[TIMING CACHE HIT] Returning cached timings ({cache_key[:8]}...)")
+        try:
+            import json
+            timings_data = json.loads(cache_file.read_text())
+            return jsonify(timings_data)
+        except Exception as e:
+            print(f"[TIMING] Cache read error: {e}, regenerating...")
+
+    # Only Edge TTS provides word-level timing data
+    if not EDGE_TTS_AVAILABLE:
+        print("[TIMING] Edge TTS not available, returning empty (frontend will use estimation)")
+        return jsonify([])
+
+    try:
+        import edge_tts
+        import asyncio
+        import json
+
+        # Get voice name
+        voice_name = TTS_VOICES.get(voice, TTS_VOICES['female'])
+
+        word_count = len(text.split())
+        print(f"[TIMING] Generating word timings for {word_count} words using {voice_name}")
+
+        async def get_timings():
+            """Async function to get word boundary events from Edge TTS"""
+            timings = []
+            communicate = edge_tts.Communicate(text, voice_name)
+
+            async for chunk in communicate.stream():
+                if chunk["type"] == "WordBoundary":
+                    # Convert 100-nanosecond units to seconds
+                    offset_sec = chunk["offset"] / 10_000_000
+                    duration_sec = chunk["duration"] / 10_000_000
+
+                    timings.append({
+                        "text": chunk["text"],
+                        "offset": offset_sec,
+                        "duration": duration_sec
+                    })
+
+            return timings
+
+        # Run async function with timeout
+        timeout = min(60 + (word_count * 0.2), 180)
+
+        try:
+            timings_data = asyncio.run(
+                asyncio.wait_for(get_timings(), timeout=timeout)
+            )
+        except asyncio.TimeoutError:
+            print(f"[TIMING] Timeout after {timeout}s, returning empty")
+            return jsonify([])
+
+        print(f"[TIMING] Got {len(timings_data)} word boundaries")
+
+        if len(timings_data) > 0:
+            print(f"[TIMING] First 3 words: {timings_data[:3]}")
+            print(f"[TIMING] Last word ends at: {timings_data[-1]['offset'] + timings_data[-1]['duration']:.2f}s")
+
+        # Cache the timing data
+        try:
+            cache_file.write_text(json.dumps(timings_data))
+            print(f"[TIMING] Cached timings: {cache_key[:8]}...")
+        except Exception as cache_error:
+            print(f"[TIMING] Warning: Failed to cache timings: {cache_error}")
+
+        return jsonify(timings_data)
+
+    except Exception as e:
+        print(f"[TIMING] Error generating timings: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 def split_into_sentence_chunks(text, sentences_per_chunk=3):
     """Split text into small sentence chunks for fast initial playback"""
     import re
