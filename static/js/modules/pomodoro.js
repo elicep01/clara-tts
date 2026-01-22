@@ -72,9 +72,27 @@ export class PomodoroTimer {
         this.pauseBtn.addEventListener('click', () => this.pause());
         this.stopBtn.addEventListener('click', () => this.stop());
 
-        // Time inputs
+        // Time inputs - update on change and Enter key
         this.minutesInput.addEventListener('change', () => this.updateTimeFromInputs());
         this.secondsInput.addEventListener('change', () => this.updateTimeFromInputs());
+
+        this.minutesInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                this.updateTimeFromInputs();
+                this.minutesInput.blur();
+            }
+        });
+
+        this.secondsInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                this.updateTimeFromInputs();
+                this.secondsInput.blur();
+            }
+        });
+
+        // Select all text when focused for easy editing
+        this.minutesInput.addEventListener('focus', () => this.minutesInput.select());
+        this.secondsInput.addEventListener('focus', () => this.secondsInput.select());
 
         // Prevent dropdown close on input
         this.dropdown.addEventListener('click', (e) => e.stopPropagation());
@@ -115,6 +133,15 @@ export class PomodoroTimer {
     updateTimeFromInputs() {
         const minutes = parseInt(this.minutesInput.value) || 0;
         const seconds = parseInt(this.secondsInput.value) || 0;
+
+        // Validate total time is not zero
+        if (minutes === 0 && seconds === 0) {
+            this.minutesInput.value = '01';
+            this.secondsInput.value = '00';
+            this.setTime(1, 0);
+            return;
+        }
+
         this.setTime(minutes, seconds);
     }
 
@@ -122,6 +149,10 @@ export class PomodoroTimer {
         if (this.isRunning && !this.isPaused) {
             return; // Don't change time while running
         }
+
+        // Clamp values to reasonable ranges
+        minutes = Math.min(99, Math.max(0, minutes));
+        seconds = Math.min(59, Math.max(0, seconds));
 
         this.totalSeconds = minutes * 60 + seconds;
         this.remainingSeconds = this.totalSeconds;
@@ -134,6 +165,14 @@ export class PomodoroTimer {
 
         // Reset milestones
         this.resetMilestones();
+
+        // Provide visual feedback for custom time
+        if (minutes !== 25 || seconds !== 0) {
+            this.btn.style.animation = 'gentle-bounce 0.3s ease-out';
+            setTimeout(() => {
+                this.btn.style.animation = '';
+            }, 300);
+        }
     }
 
     resetMilestones() {
