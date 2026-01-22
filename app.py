@@ -569,6 +569,16 @@ app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = DOCUMENTS_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
 
+# Disable caching for static files to ensure fresh JS/CSS loads
+@app.after_request
+def add_no_cache_headers(response):
+    """Add headers to prevent caching of static files during development"""
+    if request.path.startswith('/static/'):
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
+
 # Initialize ChromaDB for RAG
 chroma_client = chromadb.Client(Settings(
     anonymized_telemetry=False,
