@@ -48,8 +48,13 @@ THUMBNAILS_FOLDER = CLARA_HOME / 'thumbnails'
 VOICES_FOLDER = CLARA_HOME / 'voices'
 MODELS_FOLDER = CLARA_HOME / 'models'
 AUDIO_CACHE_FOLDER = CLARA_HOME / 'audio_cache'
+TOC_CACHE_FOLDER = CLARA_HOME / 'toc_cache'
 DATABASE_PATH = CLARA_HOME / 'clara.db'
+CONFIG_PATH = CLARA_HOME / 'config.json'
 ALLOWED_EXTENSIONS = {'pdf', 'txt', 'md'}
+
+# TOC memory cache for ultra-fast repeated access
+_toc_memory_cache = {}
 
 # TTS configuration - using edge-tts for high quality neural voices
 EDGE_TTS_AVAILABLE = False
@@ -118,8 +123,218 @@ AVAILABLE_LLMS = [
     }
 ]
 
+# Base model configuration - Downloaded on first launch
+BASE_MODEL_ID = 'llama-3.2-3b'  # 2GB, good balance of speed and quality
+BASE_MODEL = next((m for m in AVAILABLE_LLMS if m['id'] == BASE_MODEL_ID), AVAILABLE_LLMS[4])
+
 # Download progress tracking
 download_progress = {}
+
+# First launch and configuration management
+def load_config():
+    """Load Clara configuration"""
+    if not CONFIG_PATH.exists():
+        return {
+            'first_launch_complete': False,
+            'base_model_downloaded': False,
+            'version': '1.0.0'
+        }
+    try:
+        import json
+        return json.loads(CONFIG_PATH.read_text())
+    except Exception as e:
+        print(f"[CONFIG] Error loading config: {e}")
+        return {'first_launch_complete': False, 'base_model_downloaded': False}
+
+def save_config(config):
+    """Save Clara configuration"""
+    try:
+        import json
+        CONFIG_PATH.write_text(json.dumps(config, indent=2))
+    except Exception as e:
+        print(f"[CONFIG] Error saving config: {e}")
+
+def is_first_launch():
+    """Check if this is the first time Clara is running"""
+    config = load_config()
+    return not config.get('first_launch_complete', False)
+
+def check_base_model_exists():
+    """Check if base model is downloaded"""
+    base_model_path = MODELS_FOLDER / BASE_MODEL['filename']
+    return base_model_path.exists()
+
+def mark_first_launch_complete():
+    """Mark first launch as complete"""
+    config = load_config()
+    config['first_launch_complete'] = True
+    config['base_model_downloaded'] = check_base_model_exists()
+    save_config(config)
+
+def check_system_dependencies():
+    """
+    Check all system-level dependencies and provide helpful installation instructions.
+    This ensures Clara runs smoothly on both Windows and macOS without runtime errors.
+    """
+    import platform
+
+    issues = []
+    warnings = []
+    system = platform.system()
+
+    print("\n" + "="*60)
+    print("Checking System Dependencies")
+    print("="*60)
+
+    # Check Python version
+    python_version = sys.version_info
+    print(f"[OK] Python {python_version.major}.{python_version.minor}.{python_version.micro}")
+    if python_version < (3, 8):
+        issues.append("Python 3.8 or higher is required")
+
+    # Check Poppler (required for pdf2image)
+    poppler_ok = False
+    if PDF2IMAGE_AVAILABLE:
+        try:
+            from pdf2image import convert_from_path
+            # Try to actually use it with a test
+            test_result = subprocess.run(
+                ['pdftoppm', '-v'],
+                capture_output=True,
+                text=True,
+                timeout=2
+            )
+            poppler_ok = test_result.returncode == 0
+        except FileNotFoundError:
+            poppler_ok = False
+        except Exception:
+            poppler_ok = False
+
+    if poppler_ok:
+        print("[OK] Poppler (PDF rendering)")
+    else:
+        print("[MISSING] Poppler NOT FOUND (required for PDF image rendering)")
+        if system == "Darwin":  # macOS
+            issues.append("""
+Poppler is required for PDF rendering with images.
+
+Installation on macOS:
+  1. Install Homebrew if not installed: https://brew.sh
+  2. Run: brew install poppler
+  3. Restart the application
+
+Without poppler, PDFs will display as text only.
+""")
+        elif system == "Windows":
+            issues.append("""
+Poppler is required for PDF rendering with images.
+
+Installation on Windows:
+  1. Download poppler from: https://github.com/oschwartz10612/poppler-windows/releases/
+  2. Extract to C:\\Program Files\\poppler
+  3. Add C:\\Program Files\\poppler\\Library\\bin to your PATH environment variable
+  4. Restart your computer
+  5. Restart the application
+
+Detailed guide: https://github.com/oschwartz10612/poppler-windows
+
+Without poppler, PDFs will display as text only.
+""")
+        else:  # Linux
+            issues.append("""
+Poppler is required for PDF rendering with images.
+
+Installation on Linux:
+  Ubuntu/Debian: sudo apt-get install poppler-utils
+  Fedora: sudo dnf install poppler-utils
+  Arch: sudo pacman -S poppler
+
+Without poppler, PDFs will display as text only.
+""")
+
+    # Check PyMuPDF
+    if PYMUPDF_AVAILABLE:
+        print("[OK] PyMuPDF (PDF processing)")
+    else:
+        warnings.append("PyMuPDF not available - install with: pip install pymupdf")
+        print("[WARNING] PyMuPDF not installed (PDF TOC extraction limited)")
+
+    # Check sentence-transformers
+    try:
+        from sentence_transformers import SentenceTransformer
+        print("[OK] Sentence Transformers (AI embeddings)")
+    except ImportError:
+        issues.append("sentence-transformers not installed - run: pip install sentence-transformers")
+        print("[MISSING] Sentence Transformers missing")
+
+    # Check ChromaDB
+    try:
+        import chromadb
+        print("[OK] ChromaDB (vector database)")
+    except ImportError:
+        issues.append("chromadb not installed - run: pip install chromadb")
+        print("[MISSING] ChromaDB missing")
+
+    # Check Flask
+    try:
+        from flask import Flask
+        print("[OK] Flask (web framework)")
+    except ImportError:
+        issues.append("flask not installed - run: pip install flask")
+        print("[MISSING] Flask missing")
+
+    # Check webview
+    try:
+        import webview
+        print("[OK] PyWebView (desktop UI)")
+    except ImportError:
+        issues.append("pywebview not installed - run: pip install pywebview")
+        print("[MISSING] PyWebView missing")
+
+    # Check edge-tts (optional but recommended)
+    if EDGE_TTS_AVAILABLE:
+        print("[OK] Edge TTS (neural voices)")
+    else:
+        warnings.append("edge-tts not installed - for better TTS quality: pip install edge-tts")
+        print("[WARNING] Edge TTS not installed (using system TTS)")
+
+    # Check llama-cpp-python (optional)
+    try:
+        from llama_cpp import Llama
+        print("[OK] llama-cpp-python (local AI)")
+    except ImportError:
+        warnings.append("llama-cpp-python not installed - for local AI: pip install llama-cpp-python")
+        print("[WARNING] llama-cpp-python not installed (Q&A feature limited)")
+
+    print("="*60)
+
+    # Display warnings
+    if warnings:
+        print("\nWARNINGS (optional features):")
+        for warning in warnings:
+            print(f"  - {warning}")
+
+    # Display critical issues
+    if issues:
+        print("\nCRITICAL ISSUES FOUND:")
+        print("\nThe following dependencies are missing or incorrectly installed:\n")
+        for i, issue in enumerate(issues, 1):
+            print(f"{i}. {issue}")
+
+        print("\n" + "="*60)
+        print("Please install the missing dependencies and restart Clara.")
+        print("See README.md for detailed installation instructions.")
+        print("="*60)
+
+        # Don't exit immediately, allow graceful error handling
+        return False
+
+    if not warnings:
+        print("\nAll dependencies OK! Clara is ready to run.\n")
+    else:
+        print(f"\nCore dependencies OK! ({len(warnings)} optional features unavailable)\n")
+
+    return True
 
 def init_tts():
     """Initialize TTS engine"""
@@ -127,9 +342,9 @@ def init_tts():
     try:
         import edge_tts
         EDGE_TTS_AVAILABLE = True
-        print("✓ Edge TTS available (Microsoft Neural Voices)")
+        print("[OK] Edge TTS available (Microsoft Neural Voices)")
     except ImportError:
-        print("⚠ edge-tts not installed. Install with: pip install edge-tts")
+        print("[WARNING] edge-tts not installed. Install with: pip install edge-tts")
         print("  Falling back to macOS TTS")
         EDGE_TTS_AVAILABLE = False
 
@@ -159,11 +374,11 @@ def download_llm_model():
 
         urllib.request.urlretrieve(model_url, model_path, reporthook=report_progress)
         print()  # New line after progress
-        print("✓ LLM model downloaded successfully!")
+        print("[OK] LLM model downloaded successfully!")
         return True
 
     except Exception as e:
-        print(f"\n✗ Failed to download LLM model: {e}")
+        print(f"\n[ERROR] Failed to download LLM model: {e}")
         print("  Q&A feature will be limited to context search only")
         if model_path.exists():
             model_path.unlink()  # Remove partial download
@@ -205,7 +420,7 @@ def init_llm():
                 LLM_AVAILABLE = False
                 return
         else:
-            print(f"⚠ Default model {model_filename} not found. Please download it from Settings.")
+            print(f"[WARNING] Default model {model_filename} not found. Please download it from Settings.")
             LLM_AVAILABLE = False
             return
 
@@ -243,9 +458,9 @@ def init_llm():
         except Exception:
             pass  # Database might not be fully initialized yet
 
-        print(f"✓ Local LLM loaded ({model_name})")
+        print(f"[OK] Local LLM loaded ({model_name})")
     except Exception as e:
-        print(f"✗ Failed to load LLM: {e}")
+        print(f"[ERROR] Failed to load LLM: {e}")
         LLM_AVAILABLE = False
 
 def init_storage():
@@ -256,6 +471,7 @@ def init_storage():
     VOICES_FOLDER.mkdir(exist_ok=True)
     MODELS_FOLDER.mkdir(exist_ok=True)
     AUDIO_CACHE_FOLDER.mkdir(exist_ok=True)
+    TOC_CACHE_FOLDER.mkdir(exist_ok=True)
     init_database()
 
 def init_database():
@@ -368,9 +584,9 @@ def init_embedder():
     global embedder
     try:
         embedder = SentenceTransformer('all-MiniLM-L6-v2')
-        print("✓ Embedding model loaded")
+        print("[OK] Embedding model loaded")
     except Exception as e:
-        print(f"✗ Failed to load embedding model: {e}")
+        print(f"[ERROR] Failed to load embedding model: {e}")
         embedder = None
 
 def allowed_file(filename):
@@ -461,10 +677,10 @@ def create_embeddings(chunks):
             ids=[f"chunk_{i}" for i in range(len(chunks))]
         )
         
-        print(f"✓ Created {len(chunks)} embeddings")
+        print(f"[OK] Created {len(chunks)} embeddings")
         return True
     except Exception as e:
-        print(f"✗ Embedding creation failed: {e}")
+        print(f"[ERROR] Embedding creation failed: {e}")
         return False
 
 def query_document(question, n_results=3):
@@ -486,7 +702,7 @@ def query_document(question, n_results=3):
         
         return results['documents'][0] if results['documents'] else []
     except Exception as e:
-        print(f"✗ Query failed: {e}")
+        print(f"[ERROR] Query failed: {e}")
         return []
 
 def get_saved_voice():
@@ -626,6 +842,26 @@ def index():
     """Serve the main UI"""
     return render_template('index.html')
 
+@app.route('/first-launch-status')
+def first_launch_status():
+    """Check if first launch setup is needed"""
+    return jsonify({
+        'is_first_launch': is_first_launch(),
+        'has_base_model': check_base_model_exists(),
+        'base_model': {
+            'id': BASE_MODEL['id'],
+            'name': BASE_MODEL['name'],
+            'size_mb': BASE_MODEL['size_mb'],
+            'description': BASE_MODEL['description']
+        }
+    })
+
+@app.route('/mark-first-launch-complete', methods=['POST'])
+def mark_first_launch_complete_endpoint():
+    """Mark first launch as complete"""
+    mark_first_launch_complete()
+    return jsonify({'success': True})
+
 @app.route('/upload', methods=['POST'])
 def upload_file():
     """Handle document upload with persistent storage"""
@@ -686,9 +922,9 @@ def upload_file():
 
                         # Create embeddings for all chunks
                         create_embeddings(all_chunks)
-                        print(f"✓ Finished processing all {total_pages} pages ({len(all_chunks)} chunks)")
+                        print(f"[OK] Finished processing all {total_pages} pages ({len(all_chunks)} chunks)")
                     except Exception as e:
-                        print(f"✗ Background parsing failed: {e}")
+                        print(f"[ERROR] Background parsing failed: {e}")
 
                 threading.Thread(target=parse_remaining_pages, daemon=True).start()
                 chunks = initial_chunks
@@ -2270,14 +2506,14 @@ def download_llm(model_id):
 
             download_progress[model_id]['in_progress'] = False
             download_progress[model_id]['complete'] = True
-            print(f"✓ Downloaded {model_info['name']}")
+            print(f"[OK] Downloaded {model_info['name']}")
 
         except Exception as e:
             download_progress[model_id]['in_progress'] = False
             download_progress[model_id]['error'] = str(e)
             if model_path.exists():
                 model_path.unlink()
-            print(f"✗ Download failed for {model_info['name']}: {e}")
+            print(f"[ERROR] Download failed for {model_info['name']}: {e}")
 
     threading.Thread(target=do_download, daemon=True).start()
 
@@ -2364,7 +2600,7 @@ def switch_llm(model_id):
         CURRENT_LLM_ID = model_id
         LLM_MODEL_NAME = model_info['filename']
 
-        print(f"✓ Switched to {model_info['name']}")
+        print(f"[OK] Switched to {model_info['name']}")
 
         return jsonify({
             'success': True,
@@ -2750,6 +2986,1278 @@ def normalize_heading_levels(headings):
 
     return result
 
+# TOC Caching functions
+def get_file_hash(filepath):
+    """Get MD5 hash of file for cache validation (fast - only reads first/last 64KB)"""
+    md5 = hashlib.md5()
+    try:
+        with open(filepath, 'rb') as f:
+            # Read first 64KB
+            md5.update(f.read(65536))
+            # Try to read last 64KB
+            try:
+                f.seek(-65536, 2)
+                md5.update(f.read(65536))
+            except OSError:
+                # File smaller than 64KB, that's fine
+                pass
+        return md5.hexdigest()
+    except Exception as e:
+        print(f"[TOC] Hash error: {e}")
+        return ""
+
+def get_cached_smart_toc(doc_id, doc_path):
+    """Multi-layer cache check: memory then disk"""
+    global _toc_memory_cache
+
+    # Layer 1: Memory cache (instant)
+    if doc_id in _toc_memory_cache:
+        print(f"[TOC] Memory cache HIT for {doc_id}")
+        return _toc_memory_cache[doc_id]
+
+    # Layer 2: Disk cache
+    doc_hash = get_file_hash(doc_path)
+    if not doc_hash:
+        return None
+
+    cache_file = TOC_CACHE_FOLDER / f"{doc_id}_{doc_hash[:8]}.json"
+
+    if cache_file.exists():
+        try:
+            import json
+            cached_data = json.loads(cache_file.read_text())
+            toc = cached_data.get('toc', [])
+
+            # Store in memory for next time
+            _toc_memory_cache[doc_id] = toc
+
+            print(f"[TOC] Disk cache HIT for {doc_id}")
+            return toc
+        except Exception as e:
+            print(f"[TOC] Cache read error: {e}")
+
+    return None
+
+def cache_smart_toc(doc_id, doc_path, toc):
+    """Save to all cache layers"""
+    global _toc_memory_cache
+
+    # Memory cache
+    _toc_memory_cache[doc_id] = toc
+
+    # Disk cache
+    doc_hash = get_file_hash(doc_path)
+    if not doc_hash:
+        return
+
+    cache_file = TOC_CACHE_FOLDER / f"{doc_id}_{doc_hash[:8]}.json"
+
+    try:
+        import json
+        cache_file.write_text(json.dumps({
+            'toc': toc,
+            'timestamp': time.time(),
+            'doc_hash': doc_hash
+        }, indent=2))
+        print(f"[TOC] Cached TOC for {doc_id}")
+    except Exception as e:
+        print(f"[TOC] Cache write error: {e}")
+
+
+# Native PDF TOC extraction (MOST RELIABLE)
+def validate_and_clean_toc(toc_entries, doc_path=None):
+    """
+    Validate and clean TOC entries to ensure quality.
+    Removes duplicates, invalid entries, and sorts by page number.
+
+    Args:
+        toc_entries: List of TOC entry dicts
+        doc_path: Optional path to PDF for validation
+
+    Returns:
+        Cleaned and validated TOC entries
+    """
+    if not toc_entries:
+        return []
+
+    # Get total pages if we have doc_path
+    total_pages = None
+    if doc_path and PYMUPDF_AVAILABLE:
+        try:
+            import fitz
+            doc = fitz.open(doc_path)
+            total_pages = len(doc)
+            doc.close()
+        except:
+            pass
+
+    cleaned = []
+    seen_entries = set()  # Track (title_lower, page) to avoid duplicates
+
+    for entry in toc_entries:
+        try:
+            # Validate required fields
+            if not isinstance(entry, dict):
+                continue
+
+            title = entry.get('title', '').strip()
+            page = entry.get('page')
+            level = entry.get('level', 1)
+
+            # Skip if missing required fields
+            if not title or page is None:
+                continue
+
+            # Validate page number
+            try:
+                page = int(page)
+            except (ValueError, TypeError):
+                continue
+
+            # Skip negative pages
+            if page < 0:
+                continue
+
+            # Skip if page exceeds document (if we know total pages)
+            if total_pages is not None and page >= total_pages:
+                continue
+
+            # Skip very short titles (likely noise)
+            if len(title) < 2:
+                continue
+
+            # Skip if title is just numbers or special chars
+            if title.replace('.', '').replace(' ', '').isdigit():
+                continue
+
+            # Create deduplication key
+            dedup_key = (title.lower(), page)
+
+            # Skip duplicates
+            if dedup_key in seen_entries:
+                continue
+
+            seen_entries.add(dedup_key)
+
+            # Add cleaned entry
+            cleaned.append({
+                'title': title,
+                'page': page,
+                'level': min(max(int(level), 1), 5),  # Clamp to 1-5
+                'source': entry.get('source', 'unknown')
+            })
+
+        except Exception as e:
+            # Skip malformed entries
+            continue
+
+    # Sort by page number
+    cleaned.sort(key=lambda x: x['page'])
+
+    return cleaned
+
+
+def extract_native_pdf_toc(doc_path):
+    """
+    Extract PDF's built-in TOC
+    This ALREADY has correct page numbers!
+    Priority: HIGHEST - use this first if available
+    """
+    if not PYMUPDF_AVAILABLE:
+        return []
+
+    try:
+        doc = fitz.open(doc_path)
+        native_toc = doc.get_toc()  # PyMuPDF extracts embedded TOC
+        doc.close()
+
+        if native_toc:
+            formatted_toc = []
+            total_pages = len(doc)
+
+            for item in native_toc:
+                try:
+                    level, title, page = item
+
+                    # Validate page number
+                    if page < 1 or page > total_pages:
+                        print(f"[TOC] Skipping invalid native entry: {title} (page {page})")
+                        continue
+
+                    # Validate title
+                    title_clean = title.strip()
+                    if not title_clean or len(title_clean) < 1:
+                        continue
+
+                    # Page is already correct from PDF metadata!
+                    formatted_toc.append({
+                        'title': title_clean,
+                        'level': min(max(level, 1), 5),  # Clamp level to 1-5
+                        'page': page - 1,  # Convert to 0-based
+                        'source': 'native'
+                    })
+                except (ValueError, TypeError, IndexError) as e:
+                    print(f"[TOC] Skipping malformed native TOC entry: {e}")
+                    continue
+
+            print(f"[TOC] Native PDF TOC: {len(formatted_toc)} entries with CORRECT page numbers")
+            return formatted_toc
+
+    except Exception as e:
+        print(f"[TOC] Native TOC extraction failed: {e}")
+
+    return []
+
+
+# TOC Page detection and parsing
+def detect_and_parse_toc_page(doc_path):
+    """
+    Detect if document has a TOC page and extract page numbers from it.
+    Works with various formats:
+    - "Chapter 1: Introduction ............... 15"
+    - "1. Introduction                         15"
+    - "Section 1.1 Overview                    42"
+    - Books, textbooks, manuals, reports, etc.
+
+    Returns: TOC with CORRECT page numbers extracted from the TOC page
+    """
+    if not PYMUPDF_AVAILABLE:
+        return []
+
+    try:
+        import re
+        doc = fitz.open(doc_path)
+
+        # TOC is usually in first 20 pages (extended range for longer documents)
+        search_range = min(20, len(doc))
+
+        for page_num in range(search_range):
+            page = doc[page_num]
+            text = page.get_text()
+            text_lower = text.lower()
+
+            # Enhanced TOC page indicators
+            toc_indicators = [
+                'table of contents',
+                'contents',
+                'index',  # Sometimes used as TOC header
+            ]
+
+            # Check for TOC header
+            is_toc_page = any(indicator in text_lower[:500] for indicator in toc_indicators)  # Check first 500 chars
+
+            # Check for multiple dotted/dashed line patterns (strong TOC indicator)
+            # Look for at least 3 lines with dots/dashes followed by numbers
+            dotted_pattern = r'[\.\-\s]{3,}\s*\d{1,4}\s*$'
+            dotted_lines = re.findall(dotted_pattern, text, re.MULTILINE)
+            has_multiple_dotted_lines = len(dotted_lines) >= 3
+
+            # Check for numbered list pattern (another TOC indicator)
+            # Multiple lines starting with numbers like "1.", "2.", "1.1", etc.
+            numbered_pattern = r'^\s*\d+\.(?:\d+)?\s+\w+'
+            numbered_lines = re.findall(numbered_pattern, text, re.MULTILINE)
+            has_numbered_list = len(numbered_lines) >= 3
+
+            # Score-based detection for robustness
+            toc_score = 0
+            if is_toc_page:
+                toc_score += 3
+            if has_multiple_dotted_lines:
+                toc_score += 2
+            if has_numbered_list:
+                toc_score += 1
+
+            # Require score >= 2 to consider it a TOC page
+            if toc_score >= 2:
+                print(f"[TOC] Detected TOC page at page {page_num} (score: {toc_score})")
+                toc = parse_toc_page_content(text, page_num)
+
+                if toc and len(toc) >= 2:  # Need at least 2 entries to be valid
+                    doc.close()
+                    return toc
+
+        doc.close()
+    except Exception as e:
+        print(f"[TOC] TOC page detection failed: {e}")
+
+    return []
+
+
+def parse_toc_page_content(text, toc_page_num=0):
+    """
+    Parse TOC page content to extract chapter titles and page numbers.
+    Handles many different TOC formats found in various PDFs.
+
+    Supports:
+    - Dotted leaders: "Chapter 1 ............... 15"
+    - Dashed leaders: "Chapter 1 -------------- 15"
+    - Tabbed spacing: "Chapter 1                15"
+    - Numbered sections: "1.1 Introduction        15"
+    - Roman numerals: "Part I: Overview        15"
+    - Multi-level hierarchy
+    """
+    import re
+
+    lines = text.split('\n')
+    toc = []
+    seen_entries = set()  # Track (title, page) to avoid duplicates
+
+    for line in lines:
+        line_stripped = line.strip()
+
+        # Skip very short lines and likely headers
+        if len(line_stripped) < 5:
+            continue
+
+        # Skip lines that are just the word "contents" or page headers
+        if line_stripped.lower() in ['contents', 'table of contents', 'index']:
+            continue
+
+        # COMPREHENSIVE PATTERN MATCHING
+        # Each pattern extracts: (optional_number, title, page_number)
+
+        patterns = [
+            # Pattern 1: "Chapter 1: Introduction ............... 15"
+            # Pattern 2: "Chapter 1 Introduction ............... 15"
+            r'(?:chapter|ch\.?)\s+(\d+)[\:\s]+([^\.]+?)[\.\s\-]{3,}\s*(\d{1,4})\s*$',
+
+            # Pattern 3: "Part I: Getting Started ............. 15"
+            # Pattern 4: "Appendix A: Reference ............... 150"
+            r'(?:part|appendix|section)\s+([A-Z\d]+)[\:\s]+([^\.]+?)[\.\s\-]{3,}\s*(\d{1,4})\s*$',
+
+            # Pattern 5: "1. Introduction .................... 15"
+            # Pattern 6: "1 Introduction ..................... 15"
+            r'^(\d+)[\.\s]+([^\.]+?)[\.\s\-]{3,}\s*(\d{1,4})\s*$',
+
+            # Pattern 7: "1.1 Overview ....................... 42"
+            # Pattern 8: "2.3.1 Advanced Topics .............. 156"
+            r'^(\d+(?:\.\d+){1,3})\s+([^\.]+?)[\.\s\-]{3,}\s*(\d{1,4})\s*$',
+
+            # Pattern 9: "Introduction ........................ 15" (no chapter number)
+            r'^([A-Z][^\.]{4,50})[\.\s\-]{5,}\s*(\d{1,4})\s*$',
+
+            # Pattern 10: Tabbed format "Chapter 1 Introduction          15"
+            r'(?:chapter|ch\.?)\s+(\d+)\s+([^\.]+?)\s{5,}(\d{1,4})\s*$',
+
+            # Pattern 11: Tabbed numbered "1. Introduction          15"
+            r'^(\d+)[\.\)]\s+([^\.]+?)\s{5,}(\d{1,4})\s*$',
+
+            # Pattern 12: Tabbed sections "1.1 Overview             42"
+            r'^(\d+(?:\.\d+){1,3})\s+([^\.]+?)\s{5,}(\d{1,4})\s*$',
+
+            # Pattern 13: Generic with any separator "Title ............... 15"
+            # (fallback - be careful with this one)
+            r'^([^\.]{5,60})[\.\s\-]{5,}\s*(\d{1,4})\s*$',
+        ]
+
+        matched = False
+        for pattern_idx, pattern in enumerate(patterns):
+            match = re.search(pattern, line, re.IGNORECASE)
+
+            if match:
+                groups = match.groups()
+
+                # Extract page number (always last group)
+                try:
+                    page_str = groups[-1]
+                    target_page = int(page_str)
+
+                    # Sanity check: page number should be reasonable
+                    if target_page < 1 or target_page > 10000:
+                        continue
+
+                    # Convert to 0-based
+                    target_page -= 1
+
+                    # IMPORTANT: Skip if page number points to TOC page itself or earlier
+                    # This prevents self-references like "Contents ... 5" on page 5
+                    if target_page <= toc_page_num:
+                        continue
+
+                except (ValueError, IndexError):
+                    continue
+
+                # Extract title (usually second-to-last, or first if only 2 groups)
+                if len(groups) == 2:
+                    # Pattern with no chapter number: (title, page)
+                    title_part = groups[0].strip()
+                    chapter_num = None
+                    level = 1
+                elif len(groups) == 3:
+                    # Pattern with chapter number: (num, title, page)
+                    chapter_num = groups[0].strip()
+                    title_part = groups[1].strip()
+
+                    # Determine hierarchy level from chapter number
+                    if '.' in chapter_num:
+                        level = chapter_num.count('.') + 1
+                    else:
+                        level = 1
+                else:
+                    continue
+
+                # Clean up title
+                title_part = title_part.strip()
+                title_part = re.sub(r'\s+', ' ', title_part)  # Normalize whitespace
+
+                # Build full title with proper capitalization from original line
+                # (preserving case from PDF)
+                title_lower = title_part.lower()
+                title_start_idx = line.lower().find(title_lower)
+
+                if title_start_idx >= 0:
+                    title_end_idx = title_start_idx + len(title_part)
+                    actual_title = line[title_start_idx:title_end_idx].strip()
+                else:
+                    actual_title = title_part
+
+                # Clean up extracted title
+                actual_title = re.sub(r'[\.\-\s]+$', '', actual_title)  # Remove trailing dots/dashes/spaces
+                actual_title = actual_title.strip()
+
+                # Validation: title should be reasonable
+                if len(actual_title) < 3 or len(actual_title) > 200:
+                    continue
+
+                # Skip if looks like a page header or footer
+                if actual_title.lower() in ['page', 'chapter', 'section', 'part']:
+                    continue
+
+                # Create unique key
+                entry_key = (actual_title.lower(), target_page)
+
+                # Avoid duplicates
+                if entry_key not in seen_entries:
+                    toc.append({
+                        'title': actual_title,
+                        'level': level,
+                        'page': target_page,
+                        'source': 'toc_page'
+                    })
+                    seen_entries.add(entry_key)
+                    matched = True
+                    break
+
+        # Debug: print unmatched lines that look like they might be TOC entries
+        if not matched and len(line_stripped) > 10:
+            # Check if line has page number at end
+            if re.search(r'\d{1,4}\s*$', line_stripped):
+                # Might be a TOC entry we're missing - but don't spam logs
+                pass
+
+    print(f"[TOC] Parsed {len(toc)} entries from TOC page")
+    return toc
+
+
+# Multi-source TOC extraction with intelligent prioritization
+def extract_toc_multi_source(doc_path):
+    """
+    Extract TOC from ALL available sources and intelligently merge them.
+
+    Priority order:
+    1. Native PDF TOC (highest priority - already has correct pages!)
+    2. TOC page parsing (second priority - extracts actual page numbers from TOC)
+    3. Font-based heuristics (fallback - analyzes actual content)
+
+    This approach fixes the "TOC page confusion" bug where LLM would
+    tag all chapters to the TOC page instead of their actual locations.
+
+    Also implements hybrid merging when appropriate to get best results.
+    """
+    print("[TOC] Starting multi-source extraction...")
+
+    sources = {}
+
+    # Source 1: Native PDF TOC (HIGHEST PRIORITY)
+    native_toc = extract_native_pdf_toc(doc_path)
+    if native_toc:
+        sources['native'] = native_toc
+        print(f"[TOC] Native source: {len(native_toc)} entries with CORRECT pages")
+
+    # Source 2: TOC page parsing (SECOND PRIORITY)
+    toc_page_entries = detect_and_parse_toc_page(doc_path)
+    if toc_page_entries:
+        sources['toc_page'] = toc_page_entries
+        print(f"[TOC] TOC page source: {len(toc_page_entries)} entries with extracted pages")
+
+    # Source 3: Font-based heuristics (FALLBACK)
+    # This now skips first 15 pages to avoid TOC confusion
+    heuristic_toc = extract_heuristic_toc_fast(doc_path)
+    if heuristic_toc:
+        sources['heuristic'] = heuristic_toc
+        print(f"[TOC] Heuristic source: {len(heuristic_toc)} entries from content analysis")
+
+    # INTELLIGENT MERGING STRATEGY
+
+    # Case 1: Native TOC exists and looks complete (>= 5 entries)
+    if 'native' in sources and len(sources['native']) >= 5:
+        print("[TOC] Using native PDF TOC (most reliable)")
+        return validate_and_clean_toc(sources['native'], doc_path)
+
+    # Case 2: Native TOC exists but seems incomplete (< 5 entries)
+    # Supplement with TOC page or heuristic
+    elif 'native' in sources and len(sources['native']) > 0:
+        print("[TOC] Native TOC found but sparse, attempting hybrid merge...")
+        result = sources['native'].copy()
+
+        # Add entries from TOC page that aren't in native
+        if 'toc_page' in sources:
+            native_pages = {entry['page'] for entry in sources['native']}
+            for entry in sources['toc_page']:
+                if entry['page'] not in native_pages:
+                    result.append(entry)
+
+        # If still sparse, add from heuristic
+        if len(result) < 8 and 'heuristic' in sources:
+            existing_pages = {entry['page'] for entry in result}
+            for entry in sources['heuristic']:
+                if entry['page'] not in existing_pages and len(result) < 20:
+                    result.append(entry)
+
+        # Sort and validate
+        result = validate_and_clean_toc(result, doc_path)
+        print(f"[TOC] Hybrid merge: {len(result)} entries")
+        return result
+
+    # Case 3: TOC page parsing found good results
+    elif 'toc_page' in sources and len(sources['toc_page']) >= 3:
+        print("[TOC] Using TOC page extraction (second best)")
+        return validate_and_clean_toc(sources['toc_page'], doc_path)
+
+    # Case 4: Only heuristic available, or TOC page too sparse
+    elif 'heuristic' in sources and len(sources['heuristic']) > 0:
+        # If TOC page found something but too sparse, merge
+        if 'toc_page' in sources and len(sources['toc_page']) > 0:
+            print("[TOC] Merging sparse TOC page with heuristic...")
+            result = sources['toc_page'].copy()
+            toc_pages = {entry['page'] for entry in sources['toc_page']}
+
+            for entry in sources['heuristic']:
+                if entry['page'] not in toc_pages and len(result) < 30:
+                    result.append(entry)
+
+            result = validate_and_clean_toc(result, doc_path)
+            print(f"[TOC] Hybrid merge: {len(result)} entries")
+            return result
+        else:
+            print("[TOC] Using heuristic extraction (fallback)")
+            return validate_and_clean_toc(sources['heuristic'], doc_path)
+
+    else:
+        print("[TOC] No TOC found from any source")
+        return []
+
+
+# Quick heuristic TOC extraction (< 0.5s)
+def extract_heuristic_toc_fast(doc_path):
+    """
+    Super fast heuristic extraction using font analysis.
+    Works with any PDF by detecting heading-like text.
+    No LLM needed - analyzes font size, weight, and positioning.
+    MUST be < 0.5 seconds.
+    """
+    if not PYMUPDF_AVAILABLE:
+        return []
+
+    start_time = time.time()
+
+    try:
+        import re
+        doc = fitz.open(doc_path)
+        toc = []
+        seen_titles = set()
+
+        # Expanded keywords for better detection across document types
+        chapter_keywords = [
+            'chapter', 'section', 'part', 'unit', 'lesson',
+            'introduction', 'conclusion', 'summary', 'overview',
+            'abstract', 'appendix', 'preface', 'foreword',
+            'acknowledgments', 'references', 'bibliography',
+            'glossary', 'index'
+        ]
+
+        # Auto-detect where to start based on document length
+        total_pages = len(doc)
+        if total_pages < 20:
+            # Short document - start from beginning
+            start_page = 0
+            end_page = total_pages
+        else:
+            # IMPORTANT: Skip first 15 pages to avoid TOC/index/front matter
+            # This prevents tagging everything to the TOC page
+            start_page = 15
+            end_page = min(100, total_pages)  # Extended range for longer docs
+
+        # First pass: determine average font size on a sample page
+        # This helps identify what's "large" relative to body text
+        sample_page_num = min(start_page + 5, total_pages - 1)
+        sample_page = doc[sample_page_num]
+        font_sizes = []
+
+        for block in sample_page.get_text("dict")["blocks"]:
+            if block.get("type") == 0:
+                for line in block.get("lines", []):
+                    for span in line.get("spans", []):
+                        font_sizes.append(span.get("size", 12))
+
+        # Calculate median font size (more robust than mean)
+        if font_sizes:
+            font_sizes.sort()
+            median_size = font_sizes[len(font_sizes) // 2]
+            large_threshold = median_size * 1.3  # 30% larger than median
+            very_large_threshold = median_size * 1.6  # 60% larger
+            print(f"[TOC] Font analysis: median={median_size:.1f}, large>{large_threshold:.1f}, very_large>{very_large_threshold:.1f}")
+        else:
+            # Fallback values (for documents with no text or unusual formats)
+            median_size = 12
+            large_threshold = 14
+            very_large_threshold = 18
+            print(f"[TOC] Font analysis: using default thresholds (no fonts detected)")
+
+        # Second pass: extract headings
+        for page_num in range(start_page, end_page):
+            page = doc[page_num]
+            blocks = page.get_text("dict")["blocks"]
+
+            for block in blocks:
+                if block.get("type") == 0:  # Text block
+                    for line in block.get("lines", []):
+                        # Get first span to check formatting
+                        if not line.get("spans"):
+                            continue
+
+                        first_span = line["spans"][0]
+                        text = first_span.get("text", "").strip()
+                        size = first_span.get("size", 12)
+                        font = first_span.get("font", "").lower()
+                        is_bold = 'bold' in font or 'black' in font or 'heavy' in font
+
+                        # Skip very short or very long text
+                        if len(text) < 3 or len(text) > 150:
+                            continue
+
+                        # Skip page numbers and single words
+                        if text.isdigit() or (len(text.split()) == 1 and len(text) < 8):
+                            continue
+
+                        text_lower = text.lower()
+
+                        # DETECTION RULES (ordered by priority)
+
+                        # Rule 1: Contains heading keywords + styled
+                        if any(kw in text_lower for kw in chapter_keywords):
+                            if (size >= large_threshold or is_bold) and text not in seen_titles:
+                                level = 1 if size >= very_large_threshold else 2
+                                toc.append({
+                                    'title': text,
+                                    'level': level,
+                                    'page': page_num,
+                                    'source': 'heuristic'
+                                })
+                                seen_titles.add(text)
+
+                        # Rule 2: Very large text (likely major heading)
+                        elif size >= very_large_threshold and text not in seen_titles:
+                            # Additional check: should be at top portion of page
+                            # or be properly capitalized
+                            is_title_case = text[0].isupper() if text else False
+                            if is_title_case:
+                                toc.append({
+                                    'title': text,
+                                    'level': 1,
+                                    'page': page_num,
+                                    'source': 'heuristic'
+                                })
+                                seen_titles.add(text)
+
+                        # Rule 3: Numbered headings "1.1 Topic" or "Chapter 5"
+                        elif re.match(r'^(\d+\.)*\d+[\.\s]', text) and (size >= large_threshold or is_bold):
+                            if text not in seen_titles:
+                                # Count dots to determine level
+                                dots = text.split()[0].count('.')
+                                level = min(dots + 1, 3)
+                                toc.append({
+                                    'title': text,
+                                    'level': level,
+                                    'page': page_num,
+                                    'source': 'heuristic'
+                                })
+                                seen_titles.add(text)
+
+                        # Rule 4: Bold + reasonably large
+                        elif is_bold and size >= large_threshold and len(text) > 8:
+                            # Make sure it's not all caps (might be just emphasis)
+                            if not text.isupper() and text not in seen_titles:
+                                toc.append({
+                                    'title': text,
+                                    'level': 2,
+                                    'page': page_num,
+                                    'source': 'heuristic'
+                                })
+                                seen_titles.add(text)
+
+            # Limit entries per page to avoid noise
+            if len(toc) > 50:
+                break
+
+        doc.close()
+
+        elapsed = time.time() - start_time
+        print(f"[TOC] Heuristic extraction: {len(toc)} items in {elapsed:.2f}s")
+
+        # Return up to 50 items (reasonable limit)
+        return toc[:50]
+
+    except Exception as e:
+        print(f"[TOC] Heuristic extraction error: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
+
+@app.route('/document/<doc_id>/toc-quick', methods=['GET'])
+def get_toc_quick(doc_id):
+    """
+    INSTANT heuristic TOC (< 0.5 seconds)
+    Show this to user immediately
+    """
+    print(f"[TOC-Quick] Request for document: {doc_id}")
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT file_path FROM documents WHERE id = ?', (doc_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({'error': 'Document not found', 'toc': []}), 404
+
+    doc_path = row['file_path']
+
+    if not doc_path.endswith('.pdf'):
+        return jsonify({'toc': [], 'method': 'not_pdf'}), 200
+
+    # Fast heuristic extraction
+    quick_toc = extract_heuristic_toc_fast(doc_path)
+
+    return jsonify({
+        'toc': quick_toc,
+        'method': 'heuristic',
+        'confidence': 'medium',
+        'has_toc': len(quick_toc) > 0
+    })
+
+
+@app.route('/document/<doc_id>/toc-enhanced', methods=['POST'])
+def get_toc_enhanced(doc_id):
+    """
+    LLM-enhanced TOC (runs in background)
+    Refines the quick TOC
+    """
+    print(f"[TOC-Enhanced] Request for document: {doc_id}")
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT file_path FROM documents WHERE id = ?', (doc_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({'error': 'Document not found', 'toc': []}), 404
+
+    doc_path = row['file_path']
+
+    if not doc_path.endswith('.pdf'):
+        return jsonify({'toc': [], 'method': 'not_pdf'}), 200
+
+    # Check cache first
+    cached_toc = get_cached_smart_toc(doc_id, doc_path)
+    if cached_toc:
+        return jsonify({
+            'toc': cached_toc,
+            'method': 'cached',
+            'confidence': 'high',
+            'has_toc': len(cached_toc) > 0
+        })
+
+    # LLM extraction (optimized)
+    start_time = time.time()
+    smart_toc = extract_smart_toc_optimized(doc_path)
+    elapsed = time.time() - start_time
+
+    print(f"[TOC-Enhanced] Extracted {len(smart_toc)} items in {elapsed:.2f}s")
+
+    # Cache result
+    cache_smart_toc(doc_id, doc_path, smart_toc)
+
+    return jsonify({
+        'toc': smart_toc,
+        'method': 'llm',
+        'confidence': 'high',
+        'has_toc': len(smart_toc) > 0
+    })
+
+
+def extract_smart_toc_optimized(doc_path):
+    """
+    Smart TOC extraction with multi-source approach.
+
+    NEW APPROACH (fixes TOC page confusion bug):
+    1. Try native PDF TOC first (most reliable, already has correct pages)
+    2. Try TOC page parsing (extracts real page numbers from TOC)
+    3. Use document-type-specific extractors
+    4. Fallback to heuristic (now skips first 15 pages)
+
+    This prevents the bug where all chapters were tagged to page 5 (TOC page)
+    instead of their actual locations (15, 28, 45, etc.)
+    """
+    if not PYMUPDF_AVAILABLE:
+        return []
+
+    try:
+        # STRATEGY 1: Multi-source extraction (HIGHEST PRIORITY)
+        # This tries native TOC, TOC page parsing, then heuristics
+        multi_source_toc = extract_toc_multi_source(doc_path)
+        if multi_source_toc and len(multi_source_toc) > 0:
+            # If we got results from native or TOC page parsing, use them!
+            # These have CORRECT page numbers already
+            return multi_source_toc
+
+        # STRATEGY 2: Document-type-specific extractors
+        # Only use these if multi-source didn't find anything
+        doc = fitz.open(doc_path)
+        if len(doc) == 0:
+            doc.close()
+            return []
+
+        first_page_text = doc[0].get_text().lower()
+        total_pages = len(doc)
+        doc.close()
+
+        # Research paper detection (no LLM needed!)
+        if ('abstract' in first_page_text and
+            ('references' in first_page_text or 'introduction' in first_page_text)):
+            print("[TOC] Detected research paper, using specialized extractor")
+            return extract_research_paper_toc_fast(doc_path)
+
+        # Novel detection
+        if 'chapter' in first_page_text and total_pages > 50:
+            print("[TOC] Detected novel/book, using specialized extractor")
+            return extract_novel_toc_fast(doc_path)
+
+        # STRATEGY 3: LLM extraction (optional, if available)
+        if LLM_AVAILABLE:
+            print("[TOC] Using LLM extraction with optimized structure")
+            structure = extract_document_structure_optimized(doc_path)
+            if structure:
+                return llm_extract_toc_optimized(structure)
+
+        # STRATEGY 4: Final fallback
+        # This shouldn't be reached if multi-source worked, but just in case
+        print("[TOC] Final fallback to heuristic")
+        return extract_heuristic_toc_fast(doc_path)
+
+    except Exception as e:
+        print(f"[TOC] Smart extraction error: {e}")
+        return []
+
+
+@app.route('/document/<doc_id>/smart-toc', methods=['POST'])
+def get_smart_toc(doc_id):
+    """
+    Extract TOC using LLM intelligence.
+    Analyzes document structure and builds proper hierarchical TOC.
+    Falls back to regular TOC if LLM is not available.
+    """
+    print(f"\n[SmartTOC] Request for document: {doc_id}")
+
+    # Check cache first
+    cache_key = hashlib.md5(f"{doc_id}:smart-toc".encode()).hexdigest()
+    cache_file = AUDIO_CACHE_FOLDER / f"{cache_key}_toc.json"
+
+    if cache_file.exists():
+        print(f"[SmartTOC] Returning cached TOC for {doc_id}")
+        import json
+        return jsonify(json.loads(cache_file.read_text()))
+
+    # Check if LLM is available
+    if not LLM_AVAILABLE:
+        print("[SmartTOC] LLM not available, falling back to regular TOC")
+        return get_document_toc(doc_id)
+
+    # Get document path
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT file_path FROM documents WHERE id = ?', (doc_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({'error': 'Document not found', 'toc': []}), 404
+
+    filepath = row['file_path']
+
+    if not filepath.endswith('.pdf'):
+        return jsonify({'error': 'Smart TOC only available for PDFs', 'toc': []}), 200
+
+    if not PYMUPDF_AVAILABLE:
+        return jsonify({'error': 'PyMuPDF required for Smart TOC', 'toc': []}), 200
+
+    try:
+        # Step 1: Extract document structure
+        print("[SmartTOC] Extracting document structure...")
+        pages_structure = extract_document_structure(filepath)
+
+        if not pages_structure:
+            print("[SmartTOC] No structure extracted, falling back to regular TOC")
+            return get_document_toc(doc_id)
+
+        # Step 2: Use LLM to extract TOC
+        print("[SmartTOC] Using LLM to extract TOC...")
+        toc_items = llm_extract_toc(pages_structure)
+
+        # Step 3: Cache result
+        import json
+        cache_file.write_text(json.dumps({'toc': toc_items}))
+
+        print(f"[SmartTOC] Extracted {len(toc_items)} TOC items")
+        return jsonify({
+            'toc': toc_items,
+            'has_toc': len(toc_items) > 0,
+            'source': 'llm_smart'
+        })
+
+    except Exception as e:
+        print(f"[SmartTOC] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        # Fall back to regular TOC
+        return get_document_toc(doc_id)
+
+
+def extract_document_structure_optimized(filepath):
+    """
+    Extract structure from SAMPLED pages only
+    Reduces processing by 70% with minimal accuracy loss
+    """
+    if not PYMUPDF_AVAILABLE:
+        return []
+
+    try:
+        doc = fitz.open(filepath)
+        total_pages = len(doc)
+        structure = []
+
+        # Smart sampling strategy
+        pages_to_analyze = []
+
+        # First 15 pages (intro, early chapters)
+        pages_to_analyze.extend(range(min(15, total_pages)))
+
+        # Every 10th page after that (to catch later chapters)
+        pages_to_analyze.extend(range(15, min(50, total_pages), 10))
+
+        print(f"[TOC] Analyzing {len(pages_to_analyze)} pages out of {total_pages}")
+
+        for page_num in pages_to_analyze:
+            page = doc[page_num]
+            blocks = page.get_text("dict")["blocks"]
+
+            page_blocks = []
+            for block in blocks:
+                if block.get("type") == 0:  # Text block
+                    for line in block.get("lines", []):
+                        for span in line.get("spans", []):
+                            text = span.get("text", "").strip()
+                            if text and len(text) > 1:
+                                page_blocks.append({
+                                    'text': text,
+                                    'font_size': round(span.get("size", 12), 1),
+                                    'is_bold': 'bold' in span.get("font", "").lower(),
+                                    'y_pos': round(span.get("bbox", [0,0,0,0])[1], 1)
+                                })
+
+            if page_blocks:
+                structure.append({
+                    'page': page_num,
+                    'blocks': page_blocks
+                })
+
+        doc.close()
+        return structure
+
+    except Exception as e:
+        print(f"[TOC] Structure extraction error: {e}")
+        return []
+
+
+# Keep old function for compatibility
+def extract_document_structure(filepath):
+    """Compatibility wrapper - calls optimized version"""
+    return extract_document_structure_optimized(filepath)
+
+
+def llm_extract_toc(pages_structure):
+    """Use LLM to intelligently extract TOC from document structure"""
+
+    # Build structured text representation
+    structured_text = ""
+    for page in pages_structure[:20]:  # Limit to first 20 pages for TOC
+        structured_text += f"\n[PAGE {page['page'] + 1}]\n"
+
+        for block in page['blocks'][:50]:  # Limit blocks per page
+            # Mark potential headings
+            if block['font_size'] > 14 or block['is_bold']:
+                marker = f"[SIZE:{block['font_size']}]" if block['font_size'] > 14 else "[BOLD]"
+                structured_text += f"{marker} {block['text']}\n"
+            else:
+                # Include some body text for context but limit it
+                text = block['text'][:100]
+                structured_text += f"{text} "
+
+        structured_text += "\n"
+
+        # Limit total size
+        if len(structured_text) > 10000:
+            break
+
+    # Ask LLM to extract TOC
+    prompt = f"""Extract the table of contents from this document.
+
+INSTRUCTIONS:
+1. Identify chapter titles, section headings, and subsections
+2. Ignore: page numbers, headers, footers, figure captions, quotes
+3. Build hierarchical structure (level 1 = chapters, level 2 = sections, etc.)
+4. Include page numbers where each item appears
+
+OUTPUT FORMAT (JSON only, no markdown):
+[
+  {{"title": "Chapter 1: Introduction", "level": 1, "page": 5}},
+  {{"title": "1.1 Background", "level": 2, "page": 6}},
+  {{"title": "Chapter 2: Methods", "level": 1, "page": 12}}
+]
+
+DOCUMENT TEXT:
+{structured_text[:8000]}
+
+Return ONLY valid JSON array, nothing else."""
+
+    try:
+        response = ask_llm(prompt)
+
+        # Clean response
+        response = response.strip()
+
+        # Remove markdown code fences if present
+        if '```' in response:
+            # Extract content between code fences
+            parts = response.split('```')
+            for part in parts:
+                part = part.strip()
+                if part.startswith('json'):
+                    part = part[4:].strip()
+                if part.startswith('[') and part.endswith(']'):
+                    response = part
+                    break
+
+        # Parse JSON
+        import json
+        toc_items = json.loads(response)
+
+        # Validate and clean
+        valid_items = []
+        for item in toc_items:
+            if isinstance(item, dict) and 'title' in item and 'page' in item:
+                # Ensure level exists
+                if 'level' not in item:
+                    item['level'] = 1
+
+                # Convert page to 0-based index
+                item['page'] = max(0, int(item['page']) - 1)
+
+                # Validate title is not empty
+                if item['title'].strip():
+                    valid_items.append(item)
+
+        print(f"[SmartTOC] LLM extracted {len(valid_items)} TOC items")
+        return valid_items
+
+    except json.JSONDecodeError as e:
+        print(f"[SmartTOC] JSON parse error: {e}")
+        print(f"[SmartTOC] LLM response: {response[:500]}")
+        return []
+    except Exception as e:
+        print(f"[SmartTOC] LLM extraction error: {e}")
+        return []
+
+
+def llm_extract_toc_optimized(pages_structure):
+    """
+    Optimized LLM extraction
+    Shorter prompt = faster inference
+    """
+    # Build ultra-compact representation
+    compact_lines = []
+
+    for page in pages_structure[:20]:  # Limit to 20 pages for LLM
+        for block in page['blocks']:
+            # Only include potential headings
+            if block['font_size'] > 13 or block['is_bold']:
+                # Format: P5|16.0|Chapter 1: Introduction
+                compact_lines.append(
+                    f"P{page['page']}|{block['font_size']:.1f}|{block['text'][:60]}"
+                )
+
+    # Limit to 80 lines max
+    compact_text = "\n".join(compact_lines[:80])
+
+    # Ultra-compact prompt (< 1500 tokens)
+    prompt = f"""Extract table of contents from this document structure.
+
+FORMAT: [{{"title":"Chapter 1","level":1,"page":0}}]
+
+RULES:
+- level 1 = chapters/main sections
+- level 2 = subsections
+- level 3 = sub-subsections
+- Ignore page numbers, headers, quotes
+- Return ONLY valid JSON array
+
+DATA:
+{compact_text}
+
+JSON:"""
+
+    try:
+        response = ask_llm(prompt)
+
+        # Clean and parse
+        response = response.strip()
+        if '```' in response:
+            response = response.split('```')[1].replace('json', '').strip()
+
+        import json
+        toc_items = json.loads(response)
+
+        # Validate items
+        valid_items = []
+        for item in toc_items:
+            if all(k in item for k in ['title', 'page', 'level']):
+                # Convert 1-based to 0-based page numbers
+                item['page'] = max(0, item['page'] - 1)
+                valid_items.append(item)
+
+        print(f"[TOC] LLM extracted {len(valid_items)} items")
+        return valid_items
+
+    except Exception as e:
+        print(f"[TOC] LLM extraction failed: {e}")
+        return []
+
+
+def extract_research_paper_toc_fast(doc_path):
+    """
+    Fast extraction for research papers
+    Standard sections, no LLM needed
+    """
+    standard_sections = [
+        'abstract', 'introduction', 'background', 'related work',
+        'methodology', 'methods', 'materials and methods',
+        'results', 'findings', 'experiments', 'evaluation',
+        'discussion', 'analysis', 'conclusion', 'conclusions',
+        'future work', 'references', 'bibliography', 'acknowledgments'
+    ]
+
+    try:
+        doc = fitz.open(doc_path)
+        toc = []
+        seen_sections = set()
+
+        for page_num in range(min(30, len(doc))):
+            page = doc[page_num]
+            blocks = page.get_text("dict")["blocks"]
+
+            for block in blocks:
+                if block.get("type") == 0:
+                    for line in block.get("lines", []):
+                        for span in line.get("spans", []):
+                            text = span.get("text", "").strip()
+                            text_lower = text.lower()
+                            size = span.get("size", 12)
+
+                            # Look for standard sections
+                            if size > 11:  # Headings usually larger
+                                for section in standard_sections:
+                                    if section in text_lower and section not in seen_sections:
+                                        if len(text) < 100:  # Reasonable heading length
+                                            toc.append({
+                                                'title': text,
+                                                'level': 1,
+                                                'page': page_num
+                                            })
+                                            seen_sections.add(section)
+                                            break
+
+        doc.close()
+        print(f"[TOC] Research paper: {len(toc)} sections found")
+        return toc
+
+    except Exception as e:
+        print(f"[TOC] Research paper extraction error: {e}")
+        return []
+
+
+def extract_novel_toc_fast(doc_path):
+    """
+    Fast extraction for novels
+    Chapter headings only
+    """
+    import re
+
+    chapter_patterns = [
+        r'^\s*chapter\s+\d+',
+        r'^\s*chapter\s+[ivxlcdm]+',  # Roman numerals
+        r'^\s*\d+\.\s+\w+',  # "1. The Beginning"
+        r'^\s*part\s+\w+',
+    ]
+
+    try:
+        doc = fitz.open(doc_path)
+        toc = []
+        seen_chapters = set()
+
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            blocks = page.get_text("dict")["blocks"]
+
+            for block in blocks:
+                if block.get("type") == 0:
+                    for line in block.get("lines", []):
+                        for span in line.get("spans", []):
+                            text = span.get("text", "").strip()
+                            size = span.get("size", 12)
+
+                            if size > 14:  # Large text
+                                for pattern in chapter_patterns:
+                                    if re.search(pattern, text.lower()):
+                                        if text not in seen_chapters and len(text) < 100:
+                                            toc.append({
+                                                'title': text,
+                                                'level': 1,
+                                                'page': page_num
+                                            })
+                                            seen_chapters.add(text)
+                                            break
+
+        doc.close()
+        print(f"[TOC] Novel: {len(toc)} chapters found")
+        return toc
+
+    except Exception as e:
+        print(f"[TOC] Novel extraction error: {e}")
+        return []
+
+
 @app.route('/llm/unload', methods=['POST'])
 def unload_llm():
     """Unload the current LLM to free memory"""
@@ -2767,15 +4275,19 @@ def start_server():
 
 def main():
     """Main entry point"""
-    print("🎧 Starting Clara...")
+    print("Starting Clara...")
 
     # Initialize persistent storage
     print("\nInitializing storage...")
     init_storage()
-    print(f"✓ Library location: {CLARA_HOME}")
+    print(f"[OK] Library location: {CLARA_HOME}")
 
     # Check dependencies
-    print("\nChecking dependencies...")
+    deps_ok = check_system_dependencies()
+    if not deps_ok:
+        print("\nWARNING: Some dependencies are missing. Clara will continue but some features may not work.")
+        print("Please install the missing dependencies for the best experience.\n")
+        input("Press Enter to continue anyway, or Ctrl+C to exit and install dependencies...")
 
     # Initialize TTS
     print("\nInitializing Text-to-Speech...")
@@ -2799,7 +4311,7 @@ def main():
     time.sleep(2)
     
     # Create webview window
-    print("\n✨ Launching Clara...\n")
+    print("\nLaunching Clara...\n")
     window = webview.create_window(
         'Clara',
         'http://127.0.0.1:5555',

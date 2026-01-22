@@ -51,23 +51,59 @@ export class TOCManager {
         this.tocData = [];
 
         try {
-            const res = await fetch(`/document/${docId}/toc`);
-            const data = await res.json();
+            // STEP 1: Get quick TOC immediately (< 0.5s)
+            console.log('[TOC] Loading quick TOC...');
+            const quickStart = performance.now();
 
-            console.log('[TOC] Received TOC data:', data);
+            const quickRes = await fetch(`/document/${docId}/toc-quick`);
+            const quickData = await quickRes.json();
 
-            if (data.toc && data.toc.length > 0) {
-                this.tocData = data.toc;
-                console.log(`[TOC] Loaded ${this.tocData.length} items`);
-                this.render();
-            } else {
-                this.tocData = [];
-                document.getElementById('toc-list').innerHTML = '';
-                console.log('[TOC] No TOC items found');
+            const quickElapsed = performance.now() - quickStart;
+            console.log(`[TOC] Quick TOC loaded in ${quickElapsed.toFixed(0)}ms`);
+
+            if (quickData.toc && quickData.toc.length > 0) {
+                this.tocData = quickData.toc;
+                this.render(); // Show immediately!
+                console.log(`[TOC] Showing ${this.tocData.length} quick TOC items`);
             }
+
+            // STEP 2: Get enhanced TOC in background
+            console.log('[TOC] Loading enhanced TOC in background...');
+            const enhancedStart = performance.now();
+
+            const enhancedRes = await fetch(`/document/${docId}/toc-enhanced`, {
+                method: 'POST'
+            });
+            const enhancedData = await enhancedRes.json();
+
+            const enhancedElapsed = performance.now() - enhancedStart;
+            console.log(`[TOC] Enhanced TOC loaded in ${enhancedElapsed.toFixed(0)}ms (method: ${enhancedData.method})`);
+
+            if (enhancedData.toc && enhancedData.toc.length >= this.tocData.length) {
+                // Better or equal TOC available, smoothly update
+                this.tocData = enhancedData.toc;
+                this.render();
+                console.log(`[TOC] Updated with ${this.tocData.length} enhanced TOC items`);
+            }
+
         } catch (err) {
             console.error('[TOC] Error loading TOC:', err);
-            this.tocData = [];
+
+            // Fallback to regular TOC
+            try {
+                console.log('[TOC] Falling back to regular TOC...');
+                const res = await fetch(`/document/${docId}/toc`);
+                const data = await res.json();
+
+                if (data.toc && data.toc.length > 0) {
+                    this.tocData = data.toc;
+                    this.render();
+                    console.log(`[TOC] Loaded ${this.tocData.length} fallback items`);
+                }
+            } catch (fallbackErr) {
+                console.error('[TOC] Fallback also failed:', fallbackErr);
+                this.tocData = [];
+            }
         }
     }
 
