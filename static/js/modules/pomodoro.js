@@ -37,8 +37,9 @@ export class PomodoroTimer {
         this.timeDisplay = document.getElementById('pomodoro-time');
         this.dropdown = document.getElementById('pomodoro-dropdown');
 
-        // Pie chart SVG elements
-        this.pieCircle = this.btn.querySelector('.pomodoro-fill');
+        // Pac-Man SVG elements
+        this.pacmanBody = this.btn.querySelector('.pacman-body');
+        this.pacmanMouth = this.btn.querySelector('.pacman-mouth');
 
         // Input controls
         this.minutesInput = document.getElementById('minutes-input');
@@ -541,23 +542,40 @@ export class PomodoroTimer {
     }
 
     updatePieChart() {
-        // Calculate progress percentage (100 = empty, 0 = full)
-        const percentage = (this.remainingSeconds / this.totalSeconds) * 100;
+        // Calculate progress percentage (0 = start, 100 = complete)
+        const progress = ((this.totalSeconds - this.remainingSeconds) / this.totalSeconds) * 100;
 
-        // Update stroke-dashoffset to animate the pie chart
-        this.pieCircle.style.strokeDashoffset = percentage;
+        // Rotate Pac-Man around the circle (360 degrees = full circle)
+        // Start at top (0°) and rotate clockwise
+        const rotationDegrees = (progress / 100) * 360;
+        this.pacmanBody.style.transform = `rotate(${rotationDegrees}deg)`;
 
-        // Update color based on progress
-        const progress = 100 - percentage;
+        // Update Pac-Man color based on progress
+        const circle = this.pacmanBody.querySelector('circle');
 
         if (this.btn.classList.contains('completed')) {
-            this.pieCircle.style.stroke = '#34C759'; // Green
+            circle.setAttribute('fill', '#34C759'); // Green - completed!
         } else if (progress >= 90) {
-            this.pieCircle.style.stroke = '#FF3B30'; // Urgent red
+            circle.setAttribute('fill', '#FF3B30'); // Urgent red - final push!
         } else if (progress >= 75) {
-            this.pieCircle.style.stroke = '#FF6B00'; // Orange
+            circle.setAttribute('fill', '#FF6B00'); // Orange - almost there!
         } else {
-            this.pieCircle.style.stroke = '#FF3B30'; // Red
+            circle.setAttribute('fill', '#FF3B30'); // Red - working
+        }
+
+        // Make mouth wider as time runs out (more urgency)
+        if (this.isRunning) {
+            let mouthAngle = 15; // Default mouth angle
+
+            if (progress >= 90) {
+                mouthAngle = 25; // Wider mouth for urgency!
+            } else if (progress >= 75) {
+                mouthAngle = 20; // Getting wider
+            }
+
+            // Update mouth path for wider/narrower opening
+            const mouthPath = `M 20 20 L 35 ${15 + mouthAngle/2} A 18 18 0 0 1 35 ${25 - mouthAngle/2} Z`;
+            this.pacmanMouth.setAttribute('d', mouthPath);
         }
     }
 
