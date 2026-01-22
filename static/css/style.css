@@ -3420,3 +3420,242 @@ body {
         justify-content: center;
     }
 }
+
+/* ===== POMODORO TIMER ===== */
+
+/* Pomodoro container and button */
+.pomodoro-container {
+    position: relative;
+}
+
+.pomodoro-btn {
+    position: relative;
+    width: 48px;
+    height: 48px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pomodoro-pie {
+    position: absolute;
+    width: 36px;
+    height: 36px;
+    transform: rotate(-90deg);
+}
+
+.pomodoro-bg {
+    fill: none;
+    stroke: var(--border);
+    stroke-width: 3;
+}
+
+.pomodoro-fill {
+    fill: none;
+    stroke: #FF3B30;
+    stroke-width: 3;
+    stroke-dasharray: 100 100;
+    stroke-dashoffset: 100;
+    transition: stroke-dashoffset 1s linear;
+    stroke-linecap: round;
+}
+
+.pomodoro-btn.running .pomodoro-fill {
+    animation: none;
+}
+
+.pomodoro-time {
+    position: relative;
+    z-index: 1;
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text);
+    pointer-events: none;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Pomodoro dropdown */
+.pomodoro-dropdown {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    background: var(--surface);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-lg);
+    padding: 16px;
+    min-width: 280px;
+    z-index: 1000;
+}
+
+.pomodoro-dropdown.hidden {
+    display: none;
+}
+
+.pomodoro-header {
+    margin-bottom: 16px;
+}
+
+.pomodoro-header h3 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+/* Timer controls */
+.pomodoro-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.timer-display {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 16px;
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+}
+
+.time-input {
+    width: 60px;
+    font-size: 32px;
+    font-weight: 600;
+    text-align: center;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    padding: 4px;
+}
+
+.time-input:focus {
+    outline: none;
+    background: var(--surface);
+    border-radius: 4px;
+}
+
+.time-input::-webkit-inner-spin-button,
+.time-input::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.timer-display > span {
+    font-size: 32px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+/* Timer buttons */
+.timer-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.timer-btn {
+    flex: 1;
+    padding: 12px 16px;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.timer-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+.timer-btn.hidden {
+    display: none;
+}
+
+.start-btn {
+    background: var(--success);
+    color: white;
+}
+
+.start-btn:hover {
+    background: #28A745;
+    transform: translateY(-1px);
+}
+
+.pause-btn {
+    background: var(--warning);
+    color: white;
+}
+
+.pause-btn:hover {
+    background: #FF8C00;
+    transform: translateY(-1px);
+}
+
+.stop-btn {
+    background: var(--error);
+    color: white;
+}
+
+.stop-btn:hover {
+    background: #FF1A1A;
+    transform: translateY(-1px);
+}
+
+/* Preset buttons */
+.pomodoro-presets {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.preset-btn {
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.preset-btn:hover {
+    background: var(--accent-light);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+/* Timer running state */
+.pomodoro-btn.running .pomodoro-time {
+    color: #FF3B30;
+}
+
+.pomodoro-btn.paused .pomodoro-time {
+    color: var(--warning);
+}
+
+/* Pulse animation for completed timer */
+@keyframes pulse {
+    0%, 100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.05);
+    }
+}
+
+.pomodoro-btn.completed {
+    animation: pulse 0.5s ease-in-out 3;
+}

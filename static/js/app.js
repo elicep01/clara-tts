@@ -15,6 +15,7 @@ import { DictionaryManager } from './modules/dictionary.js';
 import { VoiceSelectorManager } from './modules/voice-selector.js';
 import { SettingsManager } from './modules/settings.js';
 import { TOCManager } from './modules/toc.js';
+import { PomodoroTimer } from './modules/pomodoro.js';
 
 class Clara {
     constructor() {
@@ -35,6 +36,7 @@ class Clara {
         this.voiceSelector = new VoiceSelectorManager(this);
         this.settings = new SettingsManager(this);
         this.toc = new TOCManager(this);
+        this.pomodoro = new PomodoroTimer();
 
         // Check for first launch before initializing
         this.checkFirstLaunch();

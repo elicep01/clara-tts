@@ -36,6 +36,55 @@
                     </svg>
                     <span class="notes-badge hidden" id="notes-badge">0</span>
                 </button>
+                <!-- Pomodoro Timer -->
+                <div class="pomodoro-container" id="pomodoro-container">
+                    <button class="nav-btn pomodoro-btn" id="btn-pomodoro" title="Pomodoro Timer">
+                        <svg class="pomodoro-pie" viewBox="0 0 36 36">
+                            <circle class="pomodoro-bg" cx="18" cy="18" r="15.915"/>
+                            <circle class="pomodoro-fill" cx="18" cy="18" r="15.915"/>
+                        </svg>
+                        <span class="pomodoro-time" id="pomodoro-time">25:00</span>
+                    </button>
+                    <div class="pomodoro-dropdown hidden" id="pomodoro-dropdown">
+                        <div class="pomodoro-header">
+                            <h3>Study Timer</h3>
+                        </div>
+                        <div class="pomodoro-controls">
+                            <div class="timer-display">
+                                <input type="number" class="time-input" id="minutes-input" min="0" max="99" value="25" />
+                                <span>:</span>
+                                <input type="number" class="time-input" id="seconds-input" min="0" max="59" value="00" />
+                            </div>
+                            <div class="timer-buttons">
+                                <button class="timer-btn start-btn" id="pomodoro-start">
+                                    <svg viewBox="0 0 24 24" fill="currentColor">
+                                        <polygon points="5 3 19 12 5 21 5 3"/>
+                                    </svg>
+                                    Start
+                                </button>
+                                <button class="timer-btn pause-btn hidden" id="pomodoro-pause">
+                                    <svg viewBox="0 0 24 24" fill="currentColor">
+                                        <rect x="6" y="4" width="4" height="16"/>
+                                        <rect x="14" y="4" width="4" height="16"/>
+                                    </svg>
+                                    Pause
+                                </button>
+                                <button class="timer-btn stop-btn hidden" id="pomodoro-stop">
+                                    <svg viewBox="0 0 24 24" fill="currentColor">
+                                        <rect x="5" y="5" width="14" height="14"/>
+                                    </svg>
+                                    Stop
+                                </button>
+                            </div>
+                        </div>
+                        <div class="pomodoro-presets">
+                            <button class="preset-btn" data-minutes="25">25 min</button>
+                            <button class="preset-btn" data-minutes="15">15 min</button>
+                            <button class="preset-btn" data-minutes="45">45 min</button>
+                            <button class="preset-btn" data-minutes="60">60 min</button>
+                        </div>
+                    </div>
+                </div>
                 <!-- Zoom controls (visible in viewer) -->
                 <div class="zoom-controls hidden" id="zoom-controls">
                     <button class="nav-btn" id="btn-zoom-out" title="Zoom Out">
