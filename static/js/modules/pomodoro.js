@@ -37,9 +37,8 @@ export class PomodoroTimer {
         this.timeDisplay = document.getElementById('pomodoro-time');
         this.dropdown = document.getElementById('pomodoro-dropdown');
 
-        // Pac-Man SVG elements
-        this.pacmanBody = this.btn.querySelector('.pacman-body');
-        this.pacmanMouth = this.btn.querySelector('.pacman-mouth');
+        // Progress ring SVG element
+        this.progressRing = this.btn.querySelector('.ring-progress');
 
         // Input controls
         this.minutesInput = document.getElementById('minutes-input');
@@ -545,38 +544,23 @@ export class PomodoroTimer {
         // Calculate progress percentage (0 = start, 100 = complete)
         const progress = ((this.totalSeconds - this.remainingSeconds) / this.totalSeconds) * 100;
 
-        // Rotate Pac-Man around the circle (360 degrees = full circle)
-        // Start at top (0°) and rotate clockwise
-        const rotationDegrees = (progress / 100) * 360;
-        this.pacmanBody.style.transform = `rotate(${rotationDegrees}deg)`;
+        // Update the circular progress ring
+        // stroke-dasharray is "filled portion" "empty portion" out of 100
+        this.progressRing.style.strokeDasharray = `${progress} ${100 - progress}`;
 
-        // Update Pac-Man color based on progress
-        const circle = this.pacmanBody.querySelector('circle');
+        // Update ring color based on progress and state
+        let ringColor = '#FF3B30'; // Default red
 
         if (this.btn.classList.contains('completed')) {
-            circle.setAttribute('fill', '#34C759'); // Green - completed!
+            ringColor = '#34C759'; // Green - completed!
+            this.progressRing.style.strokeDasharray = '100 0'; // Full circle
         } else if (progress >= 90) {
-            circle.setAttribute('fill', '#FF3B30'); // Urgent red - final push!
+            ringColor = '#FF3B30'; // Urgent red - final push!
         } else if (progress >= 75) {
-            circle.setAttribute('fill', '#FF6B00'); // Orange - almost there!
-        } else {
-            circle.setAttribute('fill', '#FF3B30'); // Red - working
+            ringColor = '#FF6B00'; // Orange - almost there!
         }
 
-        // Make mouth wider as time runs out (more urgency)
-        if (this.isRunning) {
-            let mouthAngle = 15; // Default mouth angle
-
-            if (progress >= 90) {
-                mouthAngle = 25; // Wider mouth for urgency!
-            } else if (progress >= 75) {
-                mouthAngle = 20; // Getting wider
-            }
-
-            // Update mouth path for wider/narrower opening
-            const mouthPath = `M 20 20 L 35 ${15 + mouthAngle/2} A 18 18 0 0 1 35 ${25 - mouthAngle/2} Z`;
-            this.pacmanMouth.setAttribute('d', mouthPath);
-        }
+        this.progressRing.style.stroke = ringColor;
     }
 
     // Public methods

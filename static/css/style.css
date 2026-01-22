@@ -3438,50 +3438,35 @@ body {
     justify-content: center;
 }
 
-.pomodoro-pie {
+.pomodoro-ring {
     position: absolute;
-    width: 40px;
-    height: 40px;
-    transform: rotate(-90deg);
-    overflow: visible;
+    width: 36px;
+    height: 36px;
+    top: 6px;
+    left: 6px;
 }
 
-.pomodoro-bg {
-    /* Background ring - always visible */
+.ring-bg {
+    /* Background ring - light gray, always visible */
 }
 
-.pacman-body {
-    transform-origin: 20px 20px;
-    transition: transform 0.3s ease;
-}
-
-.pacman-mouth {
-    transform-origin: 20px 20px;
-    transition: all 0.5s ease;
-}
-
-/* Pac-Man chomping animation when running */
-.pomodoro-btn.running .pacman-mouth {
-    animation: chomp 0.5s ease-in-out infinite;
-}
-
-@keyframes chomp {
-    0%, 100% {
-        d: path('M 20 20 L 35 15 A 18 18 0 0 1 35 25 Z');
-    }
-    50% {
-        d: path('M 20 20 L 38 20 L 38 20 Z');
-    }
+.ring-progress {
+    /* Progress ring - fills as time progresses */
+    transition: stroke 0.3s ease, stroke-dasharray 0.5s linear;
 }
 
 .pomodoro-time {
-    position: relative;
-    z-index: 1;
-    font-size: 9px;
-    font-weight: 600;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 10px;
+    font-weight: 700;
     color: var(--text);
     pointer-events: none;
     font-variant-numeric: tabular-nums;
+    letter-spacing: -0.3px;
+    z-index: 2;
 }
 
 /* Pomodoro dropdown */
