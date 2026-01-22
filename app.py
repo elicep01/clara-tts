@@ -3181,11 +3181,11 @@ def extract_native_pdf_toc(doc_path):
     try:
         doc = fitz.open(doc_path)
         native_toc = doc.get_toc()  # PyMuPDF extracts embedded TOC
+        total_pages = len(doc)  # Get page count BEFORE closing
         doc.close()
 
         if native_toc:
             formatted_toc = []
-            total_pages = len(doc)
 
             for item in native_toc:
                 try:
