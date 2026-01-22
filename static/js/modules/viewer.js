@@ -183,10 +183,13 @@ export class ViewerManager {
         const list = document.getElementById('page-list');
         list.innerHTML = '';
 
+        // LAZY LOADING FOR THUMBNAILS
+        // Create all thumbnail placeholders instantly
         for (let i = 0; i < this.state.viewerPageCount; i++) {
             const thumb = document.createElement('div');
             thumb.className = 'page-thumb' + (i === 0 ? ' active' : '');
             thumb.dataset.page = i;
+            thumb.dataset.loaded = 'false';
 
             thumb.innerHTML = `
                 <div class="page-thumb-placeholder">${i + 1}</div>
@@ -195,14 +198,55 @@ export class ViewerManager {
 
             thumb.addEventListener('click', () => this.goToPage(i));
             list.appendChild(thumb);
+        }
 
-            if (this.state.isPdf) {
+        if (this.state.isPdf) {
+            // Load first 10 thumbnails immediately
+            for (let i = 0; i < Math.min(10, this.state.viewerPageCount); i++) {
+                const thumb = list.children[i];
                 this.loadThumbnail(thumb, i);
             }
+
+            // Set up Intersection Observer for remaining thumbnails
+            this.setupLazyThumbnailLoading();
         }
     }
 
+    setupLazyThumbnailLoading() {
+        const options = {
+            root: document.getElementById('page-list'),
+            rootMargin: '200px',
+            threshold: 0
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const thumb = entry.target;
+                    const pageNum = parseInt(thumb.dataset.page);
+                    const loaded = thumb.dataset.loaded === 'true';
+
+                    if (!loaded) {
+                        this.loadThumbnail(thumb, pageNum);
+                        observer.unobserve(thumb);
+                    }
+                }
+            });
+        }, options);
+
+        // Observe thumbnails that aren't loaded yet
+        document.querySelectorAll('.page-thumb').forEach((thumb, i) => {
+            if (i >= 10 && thumb.dataset.loaded === 'false') {
+                observer.observe(thumb);
+            }
+        });
+    }
+
     async loadThumbnail(thumbEl, pageNum) {
+        if (thumbEl.dataset.loaded === 'true') return;
+
+        thumbEl.dataset.loaded = 'loading';
+
         const img = new Image();
         img.src = `/document/${this.state.viewerDocId}/thumbnail/${pageNum}`;
 
@@ -212,6 +256,12 @@ export class ViewerManager {
                 placeholder.remove();
             }
             thumbEl.insertBefore(img, thumbEl.firstChild);
+            thumbEl.dataset.loaded = 'true';
+        };
+
+        img.onerror = () => {
+            thumbEl.dataset.loaded = 'error';
+            console.error(`Failed to load thumbnail for page ${pageNum}`);
         };
     }
 
@@ -272,68 +322,34 @@ export class ViewerManager {
         const container = document.createElement('div');
         container.className = 'continuous-pages-container';
 
-        // Load all pages for continuous scrolling
+        // SMART LAZY LOADING STRATEGY
+        // Load pages in chunks for better performance
+        const CHUNK_SIZE = 5; // Load 5 pages at a time
+        const INITIAL_RANGE = 3; // Load 3 pages before and after start page initially
+
+        // Calculate which pages to load initially (current page +/- 3 pages)
+        const initialStart = Math.max(0, startPage - INITIAL_RANGE);
+        const initialEnd = Math.min(this.state.viewerPageCount - 1, startPage + INITIAL_RANGE);
+
+        console.log(`[Lazy Load] Loading pages ${initialStart}-${initialEnd} initially (start page: ${startPage})`);
+
+        // Create placeholder divs for ALL pages (instant)
         for (let i = 0; i < this.state.viewerPageCount; i++) {
             const pageWrapper = document.createElement('div');
             pageWrapper.className = 'continuous-page';
             pageWrapper.dataset.pageNum = i;
             pageWrapper.id = `page-${i}`;
+            pageWrapper.dataset.loaded = 'false';
 
-            if (this.state.isPdf) {
-                const img = new Image();
-                img.src = `/document/${this.state.viewerDocId}/page/${i}`;
-                img.dataset.pageNum = i;
-
-                pageWrapper.appendChild(img);
-
-                // Load word overlay after image loads
-                img.onload = async () => {
-                    await this.createContinuousPageWordOverlay(i, pageWrapper);
-                };
-
-                // Handle image loading errors
-                img.onerror = async (e) => {
-                    console.error(`[Viewer] Failed to load page ${i} image`);
-                    console.error(`[Viewer] Image URL: ${img.src}`);
-                    console.error(`[Viewer] Error event:`, e);
-
-                    // Check what the server actually returned
-                    try {
-                        const response = await fetch(img.src);
-                        const contentType = response.headers.get('Content-Type');
-                        console.error(`[Viewer] Server response status: ${response.status}`);
-                        console.error(`[Viewer] Server response content-type: ${contentType}`);
-
-                        if (contentType && contentType.includes('application/json')) {
-                            const errorData = await response.json();
-                            console.error(`[Viewer] Server error:`, errorData);
-                            pageWrapper.innerHTML = `
-                                <div class="text-content error-content">
-                                    <h3>Failed to Render PDF Page ${i + 1}</h3>
-                                    <p>Error: ${errorData.error || 'Unknown error'}</p>
-                                    <p>Check the console for details or restart the application.</p>
-                                </div>
-                            `;
-                        } else {
-                            // Some other error - try text fallback
-                            const textRes = await fetch(`/document/${this.state.viewerDocId}/page/${i}/text`);
-                            const data = await textRes.json();
-                            pageWrapper.innerHTML = `<div class="text-content">${this.clara.ui.escapeHtml(data.text || 'No content')}</div>`;
-                        }
-                    } catch (err) {
-                        console.error(`[Viewer] Error fetching error details:`, err);
-                        pageWrapper.innerHTML = `<div class="text-content">Failed to load page ${i + 1}</div>`;
-                    }
-                };
-            } else {
-                try {
-                    const textRes = await fetch(`/document/${this.state.viewerDocId}/page/${i}/text`);
-                    const data = await textRes.json();
-                    pageWrapper.innerHTML = `<div class="text-content">${this.clara.ui.escapeHtml(data.text || 'No content')}</div>`;
-                } catch (err) {
-                    pageWrapper.innerHTML = `<div class="text-content">Failed to load page ${i + 1}</div>`;
-                }
-            }
+            // Add placeholder with page number
+            pageWrapper.innerHTML = `
+                <div class="page-placeholder" style="min-height: 1100px; display: flex; align-items: center; justify-content: center; background: #f5f5f5; border: 1px solid #ddd;">
+                    <div style="text-align: center; color: #666;">
+                        <div style="font-size: 48px; font-weight: bold;">${i + 1}</div>
+                        <div style="margin-top: 10px;">Loading page...</div>
+                    </div>
+                </div>
+            `;
 
             container.appendChild(pageWrapper);
         }
@@ -341,13 +357,114 @@ export class ViewerManager {
         content.innerHTML = '';
         content.appendChild(container);
 
-        // Scroll to the requested page
+        // Load initial pages immediately
+        for (let i = initialStart; i <= initialEnd; i++) {
+            await this.loadSinglePageLazy(i);
+        }
+
+        // Scroll to start page
         setTimeout(() => {
             const targetPage = document.getElementById(`page-${startPage}`);
             if (targetPage) {
                 targetPage.scrollIntoView({ behavior: 'auto' });
             }
         }, 100);
+
+        // Set up Intersection Observer for lazy loading remaining pages
+        this.setupLazyPageLoading();
+
+        console.log(`[Lazy Load] Initial load complete. Lazy loading enabled for remaining pages.`);
+    }
+
+    setupLazyPageLoading() {
+        // Use Intersection Observer to load pages as they come into view
+        const options = {
+            root: document.getElementById('document-display'),
+            rootMargin: '500px', // Load pages 500px before they enter viewport
+            threshold: 0
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const pageWrapper = entry.target;
+                    const pageNum = parseInt(pageWrapper.dataset.pageNum);
+                    const loaded = pageWrapper.dataset.loaded === 'true';
+
+                    if (!loaded) {
+                        console.log(`[Lazy Load] Page ${pageNum} entering viewport, loading...`);
+                        this.loadSinglePageLazy(pageNum);
+                        observer.unobserve(pageWrapper); // Stop observing once loaded
+                    }
+                }
+            });
+        }, options);
+
+        // Observe all page wrappers
+        document.querySelectorAll('.continuous-page').forEach(pageWrapper => {
+            const loaded = pageWrapper.dataset.loaded === 'true';
+            if (!loaded) {
+                observer.observe(pageWrapper);
+            }
+        });
+
+        // Store observer for cleanup
+        this.pageObserver = observer;
+    }
+
+    async loadSinglePageLazy(i) {
+        const pageWrapper = document.getElementById(`page-${i}`);
+        if (!pageWrapper || pageWrapper.dataset.loaded === 'true') {
+            return; // Already loaded
+        }
+
+        // Mark as loading
+        pageWrapper.dataset.loaded = 'loading';
+
+        if (this.state.isPdf) {
+            // Replace placeholder with actual image
+            const img = new Image();
+            img.src = `/document/${this.state.viewerDocId}/page/${i}`;
+            img.dataset.pageNum = i;
+
+            // Clear placeholder
+            pageWrapper.innerHTML = '';
+            pageWrapper.appendChild(img);
+
+                // Load word overlay after image loads
+            img.onload = async () => {
+                pageWrapper.dataset.loaded = 'true';
+                await this.createContinuousPageWordOverlay(i, pageWrapper);
+                console.log(`[Lazy Load] Page ${i} loaded successfully`);
+            };
+
+            // Handle image loading errors
+            img.onerror = async (e) => {
+                console.error(`[Viewer] Failed to load page ${i} image`);
+                pageWrapper.dataset.loaded = 'error';
+
+                // Show error placeholder
+                pageWrapper.innerHTML = `
+                    <div class="text-content error-content" style="min-height: 1100px; display: flex; align-items: center; justify-content: center; background: #ffe6e6;">
+                        <div style="text-align: center; color: #d00;">
+                            <h3>Failed to Render Page ${i + 1}</h3>
+                            <p>Image could not be loaded</p>
+                        </div>
+                    </div>
+                `;
+            };
+        } else {
+            // Text document
+            try {
+                const textRes = await fetch(`/document/${this.state.viewerDocId}/page/${i}/text`);
+                const data = await textRes.json();
+                pageWrapper.innerHTML = `<div class="text-content">${this.clara.ui.escapeHtml(data.text || 'No content')}</div>`;
+                pageWrapper.dataset.loaded = 'true';
+            } catch (err) {
+                pageWrapper.innerHTML = `<div class="text-content">Failed to load page ${i + 1}</div>`;
+                pageWrapper.dataset.loaded = 'error';
+            }
+        }
     }
 
     async createBrowseWordOverlay(pageNum) {
