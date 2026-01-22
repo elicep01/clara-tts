@@ -1,12 +1,13 @@
 /**
- * Pomodoro Timer Module
+ * Psychologically Optimized Pomodoro Timer
  *
- * Features:
- * - Visual pie chart countdown animation
- * - Start, pause, stop controls
- * - Custom time setting (minutes:seconds)
- * - Quick preset buttons (15, 25, 45, 60 minutes)
- * - Audio notification on completion
+ * Features designed to maximize completion satisfaction:
+ * - Visual progress triggers dopamine
+ * - Milestone celebrations create mini-wins
+ * - Urgency triggers at 75% and 90%
+ * - Confetti celebration on completion
+ * - Streak tracking for sustained motivation
+ * - Achievement system
  */
 
 export class PomodoroTimer {
@@ -17,9 +18,17 @@ export class PomodoroTimer {
         this.isPaused = false;
         this.intervalId = null;
 
+        // Track milestones to avoid duplicate triggers
+        this.milestones = {
+            milestone75: false,
+            milestone90: false,
+            lastMinute: false
+        };
+
         this.initElements();
         this.attachEventListeners();
         this.updateDisplay();
+        this.loadStats();
     }
 
     initElements() {
@@ -122,6 +131,17 @@ export class PomodoroTimer {
 
         this.updateDisplay();
         this.updatePieChart();
+
+        // Reset milestones
+        this.resetMilestones();
+    }
+
+    resetMilestones() {
+        this.milestones = {
+            milestone75: false,
+            milestone90: false,
+            lastMinute: false
+        };
     }
 
     start() {
@@ -133,7 +153,7 @@ export class PomodoroTimer {
         this.isPaused = false;
 
         this.btn.classList.add('running');
-        this.btn.classList.remove('paused', 'completed');
+        this.btn.classList.remove('paused', 'completed', 'almost-complete', 'final-push');
 
         this.startBtn.classList.add('hidden');
         this.pauseBtn.classList.remove('hidden');
@@ -150,7 +170,7 @@ export class PomodoroTimer {
         this.isPaused = true;
         this.isRunning = false;
 
-        this.btn.classList.remove('running');
+        this.btn.classList.remove('running', 'almost-complete', 'final-push');
         this.btn.classList.add('paused');
 
         this.pauseBtn.classList.add('hidden');
@@ -163,7 +183,7 @@ export class PomodoroTimer {
         this.isRunning = false;
         this.isPaused = false;
 
-        this.btn.classList.remove('running', 'paused', 'completed');
+        this.btn.classList.remove('running', 'paused', 'completed', 'almost-complete', 'final-push');
 
         this.startBtn.classList.remove('hidden');
         this.pauseBtn.classList.add('hidden');
@@ -179,6 +199,7 @@ export class PomodoroTimer {
         this.remainingSeconds = this.totalSeconds;
         this.updateDisplay();
         this.updatePieChart();
+        this.resetMilestones();
     }
 
     tick() {
@@ -186,8 +207,44 @@ export class PomodoroTimer {
             this.remainingSeconds--;
             this.updateDisplay();
             this.updatePieChart();
+            this.checkPsychologicalTriggers();
         } else {
             this.complete();
+        }
+    }
+
+    checkPsychologicalTriggers() {
+        const progress = ((this.totalSeconds - this.remainingSeconds) / this.totalSeconds) * 100;
+
+        // Clear previous urgency states
+        this.btn.classList.remove('almost-complete', 'final-push');
+
+        // TRIGGER 1: 75% milestone - "You're doing great! Keep going!"
+        if (progress >= 75 && progress < 90) {
+            this.btn.classList.add('almost-complete');
+
+            if (!this.milestones.milestone75) {
+                this.milestones.milestone75 = true;
+                this.showEncouragement("You're 75% done! Keep going! 🔥", 'milestone');
+                this.playSound('milestone');
+            }
+        }
+
+        // TRIGGER 2: 90% milestone - "Final push! You're SO close!"
+        if (progress >= 90) {
+            this.btn.classList.add('final-push');
+
+            if (!this.milestones.milestone90) {
+                this.milestones.milestone90 = true;
+                this.showEncouragement("Final stretch! Don't stop now! 💪", 'urgency');
+                this.playSound('urgency');
+            }
+        }
+
+        // TRIGGER 3: Last minute - "One minute left!"
+        if (this.remainingSeconds === 60 && !this.milestones.lastMinute) {
+            this.milestones.lastMinute = true;
+            this.showEncouragement("One minute left! You got this! ⚡", 'final');
         }
     }
 
@@ -197,34 +254,89 @@ export class PomodoroTimer {
 
         clearInterval(this.intervalId);
 
-        this.btn.classList.remove('running', 'paused');
+        // DOPAMINE EXPLOSION!
+        this.btn.classList.remove('running', 'paused', 'almost-complete', 'final-push');
         this.btn.classList.add('completed');
 
-        this.startBtn.classList.remove('hidden');
-        this.pauseBtn.classList.add('hidden');
-        this.stopBtn.classList.add('hidden');
+        // Show "DONE!" text
+        this.timeDisplay.textContent = 'DONE!';
 
         // Re-enable inputs
         this.minutesInput.disabled = false;
         this.secondsInput.disabled = false;
 
-        // Play completion sound (browser beep)
-        this.playCompletionSound();
+        // CELEBRATION SEQUENCE
+        this.celebrateCompletion();
 
-        // Show notification
+        // Play triumphant sound
+        this.playSound('complete');
+
+        // Show completion message
+        this.showEncouragement('🎉 Pomodoro Complete! Amazing work!', 'complete');
+
+        // Track completion for streaks
+        this.trackCompletion();
+
+        // Show browser notification
         this.showNotification();
 
-        // Reset after animation
+        // Reset after celebration
         setTimeout(() => {
             this.btn.classList.remove('completed');
+            this.startBtn.classList.remove('hidden');
+            this.pauseBtn.classList.add('hidden');
+            this.stopBtn.classList.add('hidden');
             this.remainingSeconds = this.totalSeconds;
             this.updateDisplay();
             this.updatePieChart();
-        }, 2000);
+            this.resetMilestones();
+        }, 3000);
     }
 
-    playCompletionSound() {
-        // Create audio context for beep sound
+    celebrateCompletion() {
+        // Confetti burst!
+        for (let i = 0; i < 50; i++) {
+            setTimeout(() => this.createConfetti(), i * 30);
+        }
+    }
+
+    createConfetti() {
+        const confetti = document.createElement('div');
+        const colors = ['#FF3B30', '#34C759', '#FFD60A', '#5E5CE6', '#FF9500', '#FF2D55'];
+        const color = colors[Math.floor(Math.random() * colors.length)];
+
+        confetti.style.cssText = `
+            position: fixed;
+            width: ${8 + Math.random() * 6}px;
+            height: ${8 + Math.random() * 6}px;
+            background: ${color};
+            left: ${Math.random() * 100}%;
+            top: -20px;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 10000;
+            animation: confetti-fall ${2 + Math.random() * 2}s linear forwards;
+        `;
+
+        document.body.appendChild(confetti);
+        setTimeout(() => confetti.remove(), 4000);
+    }
+
+    showEncouragement(message, type = 'milestone') {
+        const toast = document.createElement('div');
+        toast.className = `timer-encouragement timer-encouragement-${type}`;
+        toast.textContent = message;
+
+        document.body.appendChild(toast);
+
+        // Auto-remove after 3 seconds
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+
+    playSound(type) {
         try {
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const oscillator = audioContext.createOscillator();
@@ -233,32 +345,155 @@ export class PomodoroTimer {
             oscillator.connect(gainNode);
             gainNode.connect(audioContext.destination);
 
-            oscillator.frequency.value = 800;
+            // Different sounds for different events
+            const sounds = {
+                'milestone': { freq: 600, duration: 0.15 },
+                'urgency': { freq: 700, duration: 0.1 },
+                'complete': { freq: 800, duration: 0.5 }
+            };
+
+            const sound = sounds[type] || sounds.milestone;
+
+            oscillator.frequency.value = sound.freq;
             oscillator.type = 'sine';
 
-            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+            gainNode.gain.setValueAtTime(0.15, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + sound.duration);
 
             oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 0.5);
+            oscillator.stop(audioContext.currentTime + sound.duration);
+
+            // For complete sound, play a triumphant chord
+            if (type === 'complete') {
+                [1000, 1200].forEach((freq, i) => {
+                    setTimeout(() => {
+                        const osc2 = audioContext.createOscillator();
+                        const gain2 = audioContext.createGain();
+                        osc2.connect(gain2);
+                        gain2.connect(audioContext.destination);
+                        osc2.frequency.value = freq;
+                        osc2.type = 'sine';
+                        gain2.gain.setValueAtTime(0.1, audioContext.currentTime);
+                        gain2.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+                        osc2.start(audioContext.currentTime);
+                        osc2.stop(audioContext.currentTime + 0.3);
+                    }, i * 100);
+                });
+            }
         } catch (error) {
             console.log('[Pomodoro] Could not play sound:', error);
         }
     }
 
     showNotification() {
-        // Show browser notification if permitted
         if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('Study Timer Complete!', {
-                body: 'Great work! Time for a break.',
-                icon: '/static/favicon.ico'
+            new Notification('🎉 Study Timer Complete!', {
+                body: 'Great work! Time for a well-deserved break.',
+                icon: '/static/favicon.ico',
+                tag: 'pomodoro-complete'
             });
         } else if ('Notification' in window && Notification.permission !== 'denied') {
             Notification.requestPermission();
         }
     }
 
+    trackCompletion() {
+        const completions = JSON.parse(localStorage.getItem('pomodoro_completions') || '[]');
+        completions.push(Date.now());
+        localStorage.setItem('pomodoro_completions', JSON.stringify(completions));
+
+        // Update stats
+        this.loadStats();
+
+        // Check for streak achievement
+        const streak = this.calculateStreak(completions);
+        if (streak > 1) {
+            setTimeout(() => {
+                this.showEncouragement(`🔥 ${streak} day streak! Keep it up!`, 'complete');
+            }, 2000);
+        }
+
+        // Check for milestones
+        const total = completions.length;
+        const achievements = [
+            { count: 1, message: '🎯 First Pomodoro! The journey begins!', name: 'first' },
+            { count: 5, message: '🌱 5 Pomodoros! Building the habit!', name: 'five' },
+            { count: 10, message: '⭐ 10 Pomodoros! You\'re on fire!', name: 'ten' },
+            { count: 25, message: '🏆 25 Pomodoros! Productivity master!', name: 'master' },
+            { count: 50, message: '👑 50 Pomodoros! Unstoppable!', name: 'unstoppable' }
+        ];
+
+        const achievement = achievements.find(a => a.count === total);
+        if (achievement) {
+            const unlocked = JSON.parse(localStorage.getItem('pomodoro_achievements') || '[]');
+            if (!unlocked.includes(achievement.name)) {
+                unlocked.push(achievement.name);
+                localStorage.setItem('pomodoro_achievements', JSON.stringify(unlocked));
+
+                setTimeout(() => {
+                    this.showEncouragement(achievement.message, 'complete');
+                }, 3500);
+            }
+        }
+    }
+
+    calculateStreak(completions) {
+        if (completions.length === 0) return 0;
+
+        // Get unique days
+        const days = completions.map(t => {
+            const date = new Date(t);
+            return Math.floor(date.getTime() / (1000 * 60 * 60 * 24));
+        });
+
+        const uniqueDays = [...new Set(days)].sort((a, b) => b - a);
+
+        // Count consecutive days
+        let streak = 0;
+        const today = Math.floor(Date.now() / (1000 * 60 * 60 * 24));
+
+        for (let i = 0; i < uniqueDays.length; i++) {
+            const expectedDay = today - i;
+            if (uniqueDays[i] === expectedDay) {
+                streak++;
+            } else {
+                break;
+            }
+        }
+
+        return streak;
+    }
+
+    loadStats() {
+        const completions = JSON.parse(localStorage.getItem('pomodoro_completions') || '[]');
+
+        // Count today's pomodoros
+        const today = new Date().setHours(0, 0, 0, 0);
+        const todayCount = completions.filter(t => t >= today).length;
+
+        // Calculate streak
+        const streak = this.calculateStreak(completions);
+
+        // Update header if exists
+        const header = this.dropdown.querySelector('.pomodoro-header');
+        if (header && (todayCount > 0 || streak > 0)) {
+            let statsHTML = '<h3>Study Timer</h3>';
+            if (todayCount > 0) {
+                statsHTML += `<div class="pomodoro-stat">Today: <strong>${todayCount}</strong> 🎯</div>`;
+            }
+            if (streak > 1) {
+                statsHTML += `<div class="pomodoro-stat">Streak: <strong>${streak}</strong> days 🔥</div>`;
+            }
+            header.innerHTML = statsHTML;
+        }
+    }
+
     updateDisplay() {
+        if (this.remainingSeconds === 0 && this.btn.classList.contains('completed')) {
+            this.timeDisplay.textContent = 'DONE!';
+            return;
+        }
+
         const minutes = Math.floor(this.remainingSeconds / 60);
         const seconds = this.remainingSeconds % 60;
 
@@ -271,16 +506,27 @@ export class PomodoroTimer {
         const percentage = (this.remainingSeconds / this.totalSeconds) * 100;
 
         // Update stroke-dashoffset to animate the pie chart
-        // The circumference is 100 (set in stroke-dasharray)
         this.pieCircle.style.strokeDashoffset = percentage;
+
+        // Update color based on progress
+        const progress = 100 - percentage;
+
+        if (this.btn.classList.contains('completed')) {
+            this.pieCircle.style.stroke = '#34C759'; // Green
+        } else if (progress >= 90) {
+            this.pieCircle.style.stroke = '#FF3B30'; // Urgent red
+        } else if (progress >= 75) {
+            this.pieCircle.style.stroke = '#FF6B00'; // Orange
+        } else {
+            this.pieCircle.style.stroke = '#FF3B30'; // Red
+        }
     }
 
-    // Public method to check if timer is active
+    // Public methods
     isActive() {
         return this.isRunning || this.isPaused;
     }
 
-    // Public method to get remaining time
     getTimeRemaining() {
         return {
             minutes: Math.floor(this.remainingSeconds / 60),
