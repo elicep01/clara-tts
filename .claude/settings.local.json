@@ -14,7 +14,8 @@
       "Bash(git push:*)",
       "Bash(zip -r ../clara-tts-v1.0.zip . -x \"*.pyc\" -x \"__pycache__/*\" -x \"*.git/*\" -x \".claude/*\" -x \"check_docs.py\" -x \"debug_db.py\" -x \"fix_db.py\" -x \"*.DS_Store\" -x \"venv/*\" -x \"*.egg-info/*\")",
       "Bash(zip:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(sqlite3:*)"
     ],
     "additionalDirectories": [
       "/Users/elicepriyadarshini/Desktop"

@@ -292,14 +292,36 @@ export class ViewerManager {
                 };
 
                 // Handle image loading errors
-                img.onerror = async () => {
-                    console.error(`Failed to load page ${i} image from: ${img.src}`);
-                    // Try to load as text fallback
+                img.onerror = async (e) => {
+                    console.error(`[Viewer] Failed to load page ${i} image`);
+                    console.error(`[Viewer] Image URL: ${img.src}`);
+                    console.error(`[Viewer] Error event:`, e);
+
+                    // Check what the server actually returned
                     try {
-                        const textRes = await fetch(`/document/${this.state.viewerDocId}/page/${i}/text`);
-                        const data = await textRes.json();
-                        pageWrapper.innerHTML = `<div class="text-content">${this.clara.ui.escapeHtml(data.text || 'No content')}</div>`;
+                        const response = await fetch(img.src);
+                        const contentType = response.headers.get('Content-Type');
+                        console.error(`[Viewer] Server response status: ${response.status}`);
+                        console.error(`[Viewer] Server response content-type: ${contentType}`);
+
+                        if (contentType && contentType.includes('application/json')) {
+                            const errorData = await response.json();
+                            console.error(`[Viewer] Server error:`, errorData);
+                            pageWrapper.innerHTML = `
+                                <div class="text-content error-content">
+                                    <h3>Failed to Render PDF Page ${i + 1}</h3>
+                                    <p>Error: ${errorData.error || 'Unknown error'}</p>
+                                    <p>Check the console for details or restart the application.</p>
+                                </div>
+                            `;
+                        } else {
+                            // Some other error - try text fallback
+                            const textRes = await fetch(`/document/${this.state.viewerDocId}/page/${i}/text`);
+                            const data = await textRes.json();
+                            pageWrapper.innerHTML = `<div class="text-content">${this.clara.ui.escapeHtml(data.text || 'No content')}</div>`;
+                        }
                     } catch (err) {
+                        console.error(`[Viewer] Error fetching error details:`, err);
                         pageWrapper.innerHTML = `<div class="text-content">Failed to load page ${i + 1}</div>`;
                     }
                 };

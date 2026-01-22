@@ -1448,6 +1448,8 @@ def get_document_info(doc_id):
 @app.route('/document/<doc_id>/page/<int:page_num>', methods=['GET'])
 def get_pdf_page(doc_id, page_num):
     """Render a PDF page as an image"""
+    print(f"\n[PDF Page Request] doc_id={doc_id}, page={page_num}")
+
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute('SELECT file_path FROM documents WHERE id = ?', (doc_id,))
@@ -1455,16 +1457,21 @@ def get_pdf_page(doc_id, page_num):
     conn.close()
 
     if not row:
+        print(f"[PDF Page Request] Document not found: {doc_id}")
         return jsonify({'error': 'Document not found'}), 404
 
     filepath = row['file_path']
+    print(f"[PDF Page Request] File path: {filepath}")
+
     if not filepath.endswith('.pdf'):
+        print(f"[PDF Page Request] Not a PDF: {filepath}")
         return jsonify({'error': 'Not a PDF document'}), 400
 
     try:
         # Try using pdf2image (requires poppler)
         if PDF2IMAGE_AVAILABLE:
             try:
+                print(f"[PDF Render] Converting page {page_num} to image for doc {doc_id}")
                 images = convert_from_path(filepath, first_page=page_num + 1, last_page=page_num + 1, dpi=150)
                 if images:
                     img_buffer = io.BytesIO()
@@ -1480,28 +1487,23 @@ def get_pdf_page(doc_id, page_num):
                     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
                     response.headers['Pragma'] = 'no-cache'
                     response.headers['Expires'] = '0'
+                    print(f"[PDF Render] Successfully rendered page {page_num} as image")
                     return response
+                else:
+                    print(f"[PDF Render] No images returned for page {page_num}")
+                    return jsonify({'error': 'Failed to convert PDF page to image'}), 500
             except Exception as pdf_err:
-                print(f"Error converting PDF page {page_num}: {pdf_err}")
+                print(f"[PDF Render ERROR] Failed to convert page {page_num}: {pdf_err}")
                 import traceback
                 traceback.print_exc()
+                # Don't fall through - return error so frontend can handle it
+                return jsonify({'error': f'PDF conversion failed: {str(pdf_err)}'}), 500
         else:
-            print("pdf2image not available, using text fallback")
-
-        # Fallback: return page text as JSON
-        reader = pypdf.PdfReader(filepath)
-        if page_num >= len(reader.pages):
-            return jsonify({'error': 'Page not found'}), 404
-
-        page_text = reader.pages[page_num].extract_text()
-        return jsonify({
-            'page': page_num,
-            'text': page_text,
-            'render_mode': 'text'
-        })
+            print(f"[PDF Render] pdf2image not available, cannot render as image")
+            return jsonify({'error': 'pdf2image not available - install Poppler'}), 500
 
     except Exception as e:
-        print(f"Error in get_pdf_page: {e}")
+        print(f"[PDF Render ERROR] Unexpected error in get_pdf_page: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
