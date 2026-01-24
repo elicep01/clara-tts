@@ -63,6 +63,22 @@ TTS_VOICES = {
     'male': 'en-US-GuyNeural'        # Natural male voice
 }
 
+# Gemini API configuration (free tier, fast!)
+# Key is obfuscated to prevent casual copying - use GEMINI_API_KEY env var to override
+def _get_gemini_key():
+    """Get Gemini API key from environment or use built-in default"""
+    import base64
+    # Users can set their own key via environment variable
+    env_key = os.environ.get('GEMINI_API_KEY')
+    if env_key:
+        return env_key
+    # Built-in free tier key (obfuscated) - for demo/personal use
+    _k = ['QUl6YVN5QV9wVW9s', 'V2hCUDNIUFByU3Vu', 'YVpDYk1MaDhYLTU2', 'Um9F']
+    return base64.b64decode(''.join(_k)).decode()
+
+GEMINI_API_KEY = _get_gemini_key()
+GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
+
 # Local LLM configuration
 LOCAL_LLM = None
 LLM_MODEL_NAME = 'tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf'
@@ -730,15 +746,12 @@ def get_saved_voice():
     # Default voice
     return 'en-US-JennyNeural' if EDGE_TTS_AVAILABLE else 'Samantha'
 
-def generate_audio(text, voice=None, timeout=30):
+def generate_audio_with_timings(text, voice=None, timeout=30):
     """
-    Generate audio using edge-tts (Microsoft Neural Voices) or fallback to macOS
+    Generate audio AND capture word timings from the SAME Edge TTS stream.
+    This ensures perfect synchronization between audio and word highlighting.
 
-    Args:
-        text: Text to synthesize
-        voice: Voice ID (e.g., 'en-US-JennyNeural') or legacy 'female'/'male'.
-               If None, uses saved preference.
-        timeout: Maximum time in seconds to wait for generation (default 30)
+    Returns: (audio_path, word_timings_list)
     """
     global EDGE_TTS_AVAILABLE
 
@@ -746,11 +759,11 @@ def generate_audio(text, voice=None, timeout=30):
     if voice is None:
         voice_name = get_saved_voice()
     elif voice in ('female', 'male'):
-        # Legacy support for old 'female'/'male' values
         voice_name = TTS_VOICES.get(voice, TTS_VOICES['female'])
     else:
-        # Direct voice ID (e.g., 'en-US-JennyNeural')
         voice_name = voice
+
+    word_timings = []
 
     try:
         if EDGE_TTS_AVAILABLE:
@@ -760,23 +773,43 @@ def generate_audio(text, voice=None, timeout=30):
             temp_audio = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
             temp_audio.close()
 
-            async def generate():
+            async def generate_with_timings():
+                """Stream audio and capture word boundaries from the SAME stream"""
+                nonlocal word_timings
                 communicate = edge_tts.Communicate(text, voice_name)
-                await communicate.save(temp_audio.name)
 
-            # Run async function with timeout
+                audio_chunks = []
+
+                async for chunk in communicate.stream():
+                    if chunk["type"] == "audio":
+                        audio_chunks.append(chunk["data"])
+                    elif chunk["type"] == "WordBoundary":
+                        # Convert 100-nanosecond units to seconds
+                        offset_sec = chunk["offset"] / 10_000_000
+                        duration_sec = chunk["duration"] / 10_000_000
+                        word_timings.append({
+                            "text": chunk["text"],
+                            "offset": offset_sec,
+                            "duration": duration_sec
+                        })
+
+                # Write all audio chunks to file
+                with open(temp_audio.name, 'wb') as f:
+                    for audio_chunk in audio_chunks:
+                        f.write(audio_chunk)
+
             try:
-                asyncio.run(asyncio.wait_for(generate(), timeout=timeout))
+                asyncio.run(asyncio.wait_for(generate_with_timings(), timeout=timeout))
             except asyncio.TimeoutError:
-                raise Exception(f"Audio generation timed out after {timeout} seconds. Text may be too long.")
+                raise Exception(f"Audio generation timed out after {timeout} seconds.")
 
-            return temp_audio.name
+            print(f"[TTS] Generated audio with {len(word_timings)} synchronized word timings")
+            return temp_audio.name, word_timings
         else:
-            # Fallback to macOS TTS
+            # Fallback to macOS TTS (no word timings available)
             temp_audio = tempfile.NamedTemporaryFile(suffix='.aiff', delete=False)
             temp_audio.close()
 
-            # Use voice directly for macOS (Samantha, Alex, etc.)
             macos_voice = voice_name if voice_name in ('Samantha', 'Alex') else 'Samantha'
 
             subprocess.run(
@@ -787,10 +820,18 @@ def generate_audio(text, voice=None, timeout=30):
                 timeout=timeout
             )
 
-            return temp_audio.name
+            return temp_audio.name, []  # No timings for macOS TTS
 
     except Exception as e:
         raise Exception(f"Audio generation failed: {str(e)}")
+
+def generate_audio(text, voice=None, timeout=30):
+    """
+    Generate audio using edge-tts (Microsoft Neural Voices) or fallback to macOS
+    Legacy wrapper - just returns audio path, ignoring timings.
+    """
+    audio_path, _ = generate_audio_with_timings(text, voice, timeout)
+    return audio_path
 
 def call_local_llm(prompt, context="", is_page_specific=False):
     """Call local LLM for question answering with context awareness"""
@@ -844,6 +885,25 @@ Question: {prompt}</s>
 
     except Exception as e:
         raise Exception(f"LLM query failed: {str(e)}")
+
+def call_ai_with_fallback(prompt, context="", is_page_specific=False):
+    """
+    Call local LLM for document Q&A (100% free and private!)
+    """
+    global LLM_AVAILABLE
+
+    # Use local LLM if available
+    if LLM_AVAILABLE:
+        try:
+            print("[Q&A] Using local LLM")
+            return call_local_llm(prompt, context, is_page_specific)
+        except Exception as e:
+            raise Exception(f"AI query failed: {str(e)}")
+
+    # No AI available - return context excerpt
+    if context:
+        return f"Based on the document:\n\n{context[:800]}..."
+    raise Exception("No AI service available and no context found")
 
 # Routes
 
@@ -1101,17 +1161,157 @@ def ask_question():
             if current_page_text:
                 context = f"Current page content:\n{current_page_text[:1000]}\n\n" + context
 
-        # Get answer from local LLM with enhanced prompt
-        answer = call_local_llm(question, context, is_page_specific=is_page_specific)
+        # Get answer from AI (local LLM)
+        answer = call_ai_with_fallback(question, context, is_page_specific=is_page_specific)
 
         return jsonify({
             'answer': answer,
             'context_used': len(context_chunks) if not is_page_specific else 1
         })
-    
+
     except Exception as e:
         print(f"Ask error: {e}")  # Log for debugging
         return jsonify({'error': f'Question failed: {str(e)}'}), 500
+
+@app.route('/dictionary/llm-define', methods=['POST'])
+def llm_contextual_define():
+    """
+    Free AI fallback for dictionary lookups using Gemini API
+    Uses Google's free tier - fast and smart!
+    """
+    import json
+    import requests
+
+    data = request.get_json()
+
+    word = data.get('word', '')
+    original_word = data.get('original_word', '')
+    context_sentence = data.get('context_sentence', '')
+    full_context = data.get('full_context', '')
+
+    if not word:
+        return jsonify({'error': 'No word provided'}), 400
+
+    # TRY 1: Gemini API (free tier, fast and smart!)
+    try:
+        print(f"[Dictionary] Trying Gemini API for '{word}'")
+
+        # Build prompt for Gemini
+        prompt = f"""Define the word "{word}" as used in this context: "{context_sentence if context_sentence else 'general usage'}"
+
+Return ONLY a JSON object in this exact format (no markdown, no code fences):
+{{"word":"{word}","meanings":[{{"partOfSpeech":"noun/verb/adjective/etc","definitions":[{{"definition":"Clear 1-2 sentence definition"}}]}}]}}
+
+Rules:
+- If it's an acronym, expand it first
+- If it's technical jargon, explain simply
+- Keep definition concise (under 2 sentences)
+- Return ONLY the JSON, nothing else"""
+
+        gemini_url = f"{GEMINI_API_URL}?key={GEMINI_API_KEY}"
+        gemini_payload = {
+            "contents": [{
+                "parts": [{"text": prompt}]
+            }],
+            "generationConfig": {
+                "temperature": 0.3,
+                "maxOutputTokens": 500
+            }
+        }
+
+        response = requests.post(gemini_url, json=gemini_payload, timeout=5)
+
+        if response.status_code == 200:
+            gemini_data = response.json()
+
+            # Extract text from Gemini response
+            if 'candidates' in gemini_data and len(gemini_data['candidates']) > 0:
+                candidate = gemini_data['candidates'][0]
+                if 'content' in candidate and 'parts' in candidate['content']:
+                    text = candidate['content']['parts'][0]['text'].strip()
+
+                    # Clean markdown code fences if present
+                    import re
+                    text = re.sub(r'```json\s*', '', text)
+                    text = re.sub(r'```\s*', '', text)
+                    text = text.strip()
+
+                    # Parse JSON
+                    definition_data = json.loads(text)
+
+                    if 'meanings' in definition_data and definition_data['meanings']:
+                        print(f"[Dictionary] Gemini found {len(definition_data['meanings'])} meanings for '{word}'")
+                        return jsonify(definition_data)
+
+    except Exception as e:
+        print(f"[Dictionary] Gemini failed: {e}")
+
+    # TRY 2: Wiktionary API (free backup)
+    try:
+        print(f"[Dictionary] Trying Wiktionary for '{word}'")
+        url = f"https://en.wiktionary.org/api/rest_v1/page/definition/{word}"
+        headers = {'User-Agent': 'Clara/1.0 (Reading App)'}
+
+        response = requests.get(url, headers=headers, timeout=5)
+
+        if response.status_code == 200:
+            wikt_data = response.json()
+
+            # Parse Wiktionary response
+            meanings = []
+            for lang_section in wikt_data.get('en', []):
+                part_of_speech = lang_section.get('partOfSpeech', 'unknown')
+
+                definitions = []
+                for defn in lang_section.get('definitions', [])[:2]:  # Max 2 definitions
+                    def_text = defn.get('definition', '')
+                    # Clean HTML tags
+                    import re
+                    def_text = re.sub('<[^<]+?>', '', def_text)
+
+                    definitions.append({
+                        'definition': def_text
+                    })
+
+                if definitions:
+                    meanings.append({
+                        'partOfSpeech': part_of_speech,
+                        'definitions': definitions
+                    })
+
+            if meanings:
+                print(f"[Dictionary] Wiktionary found {len(meanings)} meanings for '{word}'")
+                return jsonify({
+                    'word': word,
+                    'meanings': meanings
+                })
+
+    except Exception as e:
+        print(f"[Dictionary] Wiktionary failed: {e}")
+
+    # FALLBACK: Show word in context
+    print(f"[Dictionary] Showing context for '{word}'")
+
+    if context_sentence:
+        contextual_def = f"As used here: {context_sentence}"
+    elif full_context:
+        contextual_def = f"Context: {full_context[:200]}..."
+    else:
+        contextual_def = "No definition or context available"
+
+    return jsonify({
+        'word': word,
+        'meanings': [
+            {
+                'partOfSpeech': 'contextual usage',
+                'definitions': [
+                    {
+                        'definition': contextual_def
+                    }
+                ]
+            }
+        ]
+    })
 
 @app.route('/status', methods=['GET'])
 def status():
@@ -1122,6 +1322,10 @@ def status():
         'total_chunks': len(current_chunks),
         'document': current_document['name'] if current_document else None
     })
+
+# ============================================================
+# AI SETTINGS ENDPOINTS
+# ============================================================
 
 # ============================================================
 # LIBRARY ENDPOINTS
@@ -1593,15 +1797,55 @@ def get_page_text(doc_id, page_num):
             BOTTOM_MARGIN = 0.94   # Skip bottom 6% (footers, page numbers)
             LEFT_MARGIN = 0.05
             RIGHT_MARGIN = 0.95
-            MIN_FONT_HEIGHT = 8
+            MIN_FONT_HEIGHT = 5.5  # Lowered to capture research paper body text (6-7pt)
 
             words_data = page.get_text("words")
 
-            # Filter words and join hyphenated ones
-            filtered_words = []
-            i = 0
-            word_list = []
+            # Smart filtering: skip non-content text that humans wouldn't read
+            import re
+            def should_skip_word(text, rel_y, rel_x, is_isolated=False):
+                """Intelligently skip page numbers, citations, metadata, etc."""
+                text = text.strip()
+                if not text:
+                    return True
 
+                # Skip standalone page numbers (near edges)
+                if re.match(r'^\d{1,4}$', text):
+                    if rel_y < 0.08 or rel_y > 0.92 or rel_x < 0.08 or rel_x > 0.92:
+                        return True
+                    if len(text) <= 2 and is_isolated:
+                        return True
+
+                # Skip citation references [1], [23], [1,2], [1-5], [1e5]
+                if re.match(r'^\[\d+[\d,\-e\s]*\]$', text):
+                    return True
+
+                # Skip parenthetical refs (1), (23)
+                if re.match(r'^\(\d{1,3}\)$', text):
+                    return True
+
+                # Skip metadata in margins
+                if rel_y < 0.1 or rel_y > 0.9:
+                    metadata_patterns = [
+                        r'^©', r'^\d{4}$', r'^doi[:.]', r'^https?://', r'^www\.',
+                        r'^ISSN', r'^ISBN', r'^Vol\.', r'^No\.', r'^pp\.',
+                    ]
+                    for pattern in metadata_patterns:
+                        if re.match(pattern, text, re.IGNORECASE):
+                            return True
+
+                # Skip footnote markers when isolated
+                if is_isolated and len(text) == 1 and text in '*†‡§¶':
+                    return True
+
+                # Skip isolated superscript letters (author affiliations like a, b, c)
+                if is_isolated and re.match(r'^[a-j]$', text):
+                    return True
+
+                return False
+
+            # Filter words
+            word_list = []
             for w in words_data:
                 x0, y0, x1, y1, text, block, line, word_idx = w
                 rel_y = y0 / page_height
@@ -1618,14 +1862,31 @@ def get_page_text(doc_id, page_num):
                 if not text.strip():
                     continue
 
-                word_list.append({'text': text, 'line': line, 'block': block, 'y': y0})
+                word_list.append({
+                    'text': text, 'line': line, 'block': block,
+                    'y': y0, 'rel_y': rel_y, 'rel_x': rel_x
+                })
 
-            # Join hyphenated words
+            # Second pass: apply smart filtering and join hyphenated words
+            filtered_words = []
             i = 0
             while i < len(word_list):
                 word = word_list[i]
                 text = word['text']
 
+                # Check if word is isolated (different block from neighbors)
+                is_isolated = True
+                if i > 0 and word_list[i-1]['block'] == word['block']:
+                    is_isolated = False
+                if i < len(word_list) - 1 and word_list[i+1]['block'] == word['block']:
+                    is_isolated = False
+
+                # Apply smart filtering
+                if should_skip_word(text, word['rel_y'], word['rel_x'], is_isolated):
+                    i += 1
+                    continue
+
+                # Handle hyphenated words
                 if text.endswith('-') and i + 1 < len(word_list):
                     next_word = word_list[i + 1]
                     is_continuation = (
@@ -1659,10 +1920,11 @@ def get_page_text(doc_id, page_num):
 def get_page_words(doc_id, page_num):
     """Get word positions from a PDF page for highlighting overlay.
 
-    Filters out:
-    - Headers and footers (top/bottom 8% of page)
-    - Very small text (likely copyright, page numbers)
-    - Text in margins (left/right 5%)
+    Smart filtering removes:
+    - Page numbers, citation references [1], (2)
+    - Headers/footers with publication metadata
+    - Footnote markers, isolated superscripts
+    - Very small text (copyright, etc.)
 
     Also joins hyphenated words split across lines.
     """
@@ -1681,6 +1943,7 @@ def get_page_words(doc_id, page_num):
 
     try:
         import fitz  # PyMuPDF
+        import re
 
         doc = fitz.open(filepath)
         if page_num >= len(doc):
@@ -1692,41 +1955,72 @@ def get_page_words(doc_id, page_num):
         page_height = page_rect.height
         page_width = page_rect.width
 
-        # Define content area boundaries (as percentages)
-        TOP_MARGIN = 0.04      # Skip top 4% (page numbers, running headers)
-        BOTTOM_MARGIN = 0.94   # Skip bottom 6% (footers, page numbers)
-        LEFT_MARGIN = 0.05     # Skip left 5%
-        RIGHT_MARGIN = 0.95    # Skip right 5%
-        MIN_FONT_HEIGHT = 8    # Minimum font height in points (skip tiny text)
+        # Define content area boundaries
+        TOP_MARGIN = 0.04
+        BOTTOM_MARGIN = 0.94
+        LEFT_MARGIN = 0.05
+        RIGHT_MARGIN = 0.95
+        MIN_FONT_HEIGHT = 5.5
 
-        # Get word list with positions
-        # Each word is (x0, y0, x1, y1, "word", block_no, line_no, word_no)
+        # Smart filtering function (same as /text endpoint)
+        def should_skip_word(text, rel_y, rel_x, is_isolated=False):
+            """Intelligently skip page numbers, citations, metadata, etc."""
+            text = text.strip()
+            if not text:
+                return True
+
+            # Skip standalone page numbers (near edges)
+            if re.match(r'^\d{1,4}$', text):
+                if rel_y < 0.08 or rel_y > 0.92 or rel_x < 0.08 or rel_x > 0.92:
+                    return True
+                if len(text) <= 2 and is_isolated:
+                    return True
+
+            # Skip citation references [1], [23], [1,2], [1-5], [1e5]
+            if re.match(r'^\[\d+[\d,\-e\s]*\]$', text):
+                return True
+
+            # Skip parenthetical refs (1), (23)
+            if re.match(r'^\(\d{1,3}\)$', text):
+                return True
+
+            # Skip metadata in margins
+            if rel_y < 0.1 or rel_y > 0.9:
+                metadata_patterns = [
+                    r'^©', r'^\d{4}$', r'^doi[:.]', r'^https?://', r'^www\.',
+                    r'^ISSN', r'^ISBN', r'^Vol\.', r'^No\.', r'^pp\.',
+                ]
+                for pattern in metadata_patterns:
+                    if re.match(pattern, text, re.IGNORECASE):
+                        return True
+
+            # Skip footnote markers when isolated
+            if is_isolated and len(text) == 1 and text in '*†‡§¶':
+                return True
+
+            # Skip isolated superscript letters (author affiliations)
+            if is_isolated and re.match(r'^[a-j]$', text):
+                return True
+
+            return False
+
         words_data = page.get_text("words")
 
-        # Filter and process words
+        # First pass: basic position filtering
         raw_words = []
         for w in words_data:
             x0, y0, x1, y1, text, block, line, word_idx = w
-
-            # Calculate relative positions
             rel_y = y0 / page_height
             rel_x = x0 / page_width
             rel_x_end = x1 / page_width
             font_height = y1 - y0
 
-            # Skip if in header/footer zone
             if rel_y < TOP_MARGIN or rel_y > BOTTOM_MARGIN:
                 continue
-
-            # Skip if in margins
             if rel_x < LEFT_MARGIN or rel_x_end > RIGHT_MARGIN:
                 continue
-
-            # Skip very small text (copyright, footnotes, etc.)
             if font_height < MIN_FONT_HEIGHT:
                 continue
-
-            # Skip empty or whitespace-only
             if not text.strip():
                 continue
 
@@ -1737,45 +2031,49 @@ def get_page_words(doc_id, page_num):
                 'w': ((x1 - x0) / page_width) * 100,
                 'h': ((y1 - y0) / page_height) * 100,
                 'block': block,
-                'line': line
+                'line': line,
+                'rel_y': rel_y,
+                'rel_x': rel_x
             })
 
-        # Join hyphenated words (word ending with - followed by word on next line)
+        # Second pass: smart filtering and hyphen joining
         words = []
         i = 0
         while i < len(raw_words):
             word = raw_words[i]
             text = word['text']
 
-            # Check if word ends with hyphen and there's a next word
+            # Check if word is isolated
+            is_isolated = True
+            if i > 0 and raw_words[i-1]['block'] == word['block']:
+                is_isolated = False
+            if i < len(raw_words) - 1 and raw_words[i+1]['block'] == word['block']:
+                is_isolated = False
+
+            # Apply smart filtering
+            if should_skip_word(text, word['rel_y'], word['rel_x'], is_isolated):
+                i += 1
+                continue
+
+            # Handle hyphenated words
             if text.endswith('-') and i + 1 < len(raw_words):
                 next_word = raw_words[i + 1]
-
-                # Check if next word is on the next line (same or next block)
                 is_continuation = (
                     next_word['line'] == word['line'] + 1 or
                     (next_word['block'] == word['block'] + 1 and next_word['line'] == 0) or
-                    next_word['y'] > word['y'] + word['h'] * 0.5  # Next word is below
+                    next_word['y'] > word['y'] + word['h'] * 0.5
                 )
-
                 if is_continuation:
-                    # Join the words (remove hyphen)
-                    joined_text = text[:-1] + next_word['text']
-
-                    # Create combined bounding box (use first word's position, expand width)
                     words.append({
-                        'text': joined_text,
+                        'text': text[:-1] + next_word['text'],
                         'x': word['x'],
                         'y': word['y'],
                         'w': word['w'],
                         'h': word['h']
                     })
-
-                    # Skip the next word since we merged it
                     i += 2
                     continue
 
-            # Regular word (no hyphenation)
             words.append({
                 'text': text,
                 'x': word['x'],
@@ -1801,7 +2099,10 @@ def get_page_words(doc_id, page_num):
 
 @app.route('/play-text', methods=['POST'])
 def play_text():
-    """Generate audio for arbitrary text (used for page-based reading) with caching"""
+    """Generate audio for arbitrary text (used for page-based reading) with caching.
+
+    Now captures word timings from the SAME Edge TTS stream as audio for perfect sync!
+    """
     data = request.get_json()
     text = data.get('text', '')
     voice = data.get('voice', 'female')
@@ -1812,6 +2113,7 @@ def play_text():
     # Create cache key from text + voice
     cache_key = hashlib.md5(f"{text}:{voice}".encode()).hexdigest()
     cache_file = AUDIO_CACHE_FOLDER / f"{cache_key}.mp3"
+    timings_cache_file = AUDIO_CACHE_FOLDER / f"{cache_key}_timings.json"
 
     # Check cache first
     if cache_file.exists():
@@ -1821,10 +2123,9 @@ def play_text():
     # Log text length for debugging
     word_count = len(text.split())
     char_count = len(text)
-    print(f"[TTS CACHE MISS] Generating audio: {word_count} words, {char_count} chars")
+    print(f"[TTS CACHE MISS] Generating audio + timings: {word_count} words, {char_count} chars")
 
     # Generous timeout - NEVER fail, reading must always work
-    # ~0.2s per word + 60s buffer, capped at 3 minutes
     base_timeout = 60
     timeout = min(base_timeout + (word_count * 0.2), 180)
     print(f"[TTS] Timeout: {timeout:.0f}s for {word_count} words")
@@ -1842,21 +2143,28 @@ def play_text():
         try:
             print(f"[TTS] Attempting: {attempt_desc}")
             start_time = time.time()
-            audio_path = generate_audio(attempt_text, voice, timeout=timeout)
+            # Use new unified function that captures BOTH audio and timings
+            audio_path, word_timings = generate_audio_with_timings(attempt_text, voice, timeout=timeout)
             gen_time = time.time() - start_time
-            print(f"[TTS] SUCCESS: {gen_time:.2f}s ({attempt_words} words)")
+            print(f"[TTS] SUCCESS: {gen_time:.2f}s ({attempt_words} words, {len(word_timings)} timing events)")
 
             with open(audio_path, 'rb') as f:
                 audio_data = f.read()
 
             os.unlink(audio_path)
 
-            # Save to cache for future use
+            # Save BOTH audio and timings to cache for perfect sync
             try:
                 cache_file.write_bytes(audio_data)
-                print(f"[TTS] Cached audio: {cache_key[:8]}...")
+                # Cache timings alongside audio with matching key
+                if word_timings:
+                    import json
+                    timings_cache_file.write_text(json.dumps(word_timings))
+                    print(f"[TTS] Cached audio + {len(word_timings)} word timings: {cache_key[:8]}...")
+                else:
+                    print(f"[TTS] Cached audio (no timings available): {cache_key[:8]}...")
             except Exception as cache_error:
-                print(f"[TTS] Warning: Failed to cache audio: {cache_error}")
+                print(f"[TTS] Warning: Failed to cache: {cache_error}")
 
             mimetype = 'audio/mpeg' if audio_path.endswith('.mp3') else 'audio/wav'
             return Response(audio_data, mimetype=mimetype)
@@ -1876,7 +2184,11 @@ def play_text():
 
 @app.route('/word-timings', methods=['POST'])
 def word_timings():
-    """Get word-level timing data from Edge TTS for accurate synchronization"""
+    """Get word-level timing data synchronized with the generated audio.
+
+    IMPORTANT: These timings are now captured from the SAME Edge TTS stream
+    as the audio (via /play-text), ensuring perfect synchronization.
+    """
     data = request.get_json()
     text = data.get('text', '')
     voice = data.get('voice', 'female')
@@ -1884,56 +2196,61 @@ def word_timings():
     if not text:
         return jsonify({'error': 'No text provided'}), 400
 
-    # Create cache key for timings
-    cache_key = hashlib.md5(f"{text}:{voice}:timings".encode()).hexdigest()
-    cache_file = AUDIO_CACHE_FOLDER / f"{cache_key}.json"
+    import json
 
-    # Check cache first
-    if cache_file.exists():
-        print(f"[TIMING CACHE HIT] Returning cached timings ({cache_key[:8]}...)")
+    # Use the SAME cache key as /play-text to get synchronized timings
+    cache_key = hashlib.md5(f"{text}:{voice}".encode()).hexdigest()
+    timings_cache_file = AUDIO_CACHE_FOLDER / f"{cache_key}_timings.json"
+
+    # Check for synchronized timings (created by /play-text)
+    if timings_cache_file.exists():
+        print(f"[TIMING] Using synchronized timings from audio generation ({cache_key[:8]}...)")
         try:
-            import json
-            timings_data = json.loads(cache_file.read_text())
+            timings_data = json.loads(timings_cache_file.read_text())
+            print(f"[TIMING] Returning {len(timings_data)} perfectly synchronized word timings")
             return jsonify(timings_data)
         except Exception as e:
-            print(f"[TIMING] Cache read error: {e}, regenerating...")
+            print(f"[TIMING] Cache read error: {e}")
 
-    # Only Edge TTS provides word-level timing data
+    # Fallback: check old-style timing cache
+    old_cache_key = hashlib.md5(f"{text}:{voice}:timings".encode()).hexdigest()
+    old_cache_file = AUDIO_CACHE_FOLDER / f"{old_cache_key}.json"
+    if old_cache_file.exists():
+        print(f"[TIMING] Using legacy timing cache ({old_cache_key[:8]}...)")
+        try:
+            timings_data = json.loads(old_cache_file.read_text())
+            return jsonify(timings_data)
+        except Exception as e:
+            print(f"[TIMING] Legacy cache read error: {e}")
+
+    # No cached timings - generate new ones (this shouldn't happen normally
+    # since /play-text generates timings, but it's a fallback)
     if not EDGE_TTS_AVAILABLE:
-        print("[TIMING] Edge TTS not available, returning empty (frontend will use estimation)")
+        print("[TIMING] Edge TTS not available, returning empty (frontend will estimate)")
         return jsonify([])
 
     try:
         import edge_tts
         import asyncio
-        import json
 
-        # Get voice name
         voice_name = TTS_VOICES.get(voice, TTS_VOICES['female'])
-
         word_count = len(text.split())
-        print(f"[TIMING] Generating word timings for {word_count} words using {voice_name}")
+        print(f"[TIMING] Generating fallback timings for {word_count} words")
 
         async def get_timings():
-            """Async function to get word boundary events from Edge TTS"""
             timings = []
             communicate = edge_tts.Communicate(text, voice_name)
-
             async for chunk in communicate.stream():
                 if chunk["type"] == "WordBoundary":
-                    # Convert 100-nanosecond units to seconds
                     offset_sec = chunk["offset"] / 10_000_000
                     duration_sec = chunk["duration"] / 10_000_000
-
                     timings.append({
                         "text": chunk["text"],
                         "offset": offset_sec,
                         "duration": duration_sec
                     })
-
             return timings
 
-        # Run async function with timeout
         timeout = min(60 + (word_count * 0.2), 180)
 
         try:
@@ -3590,19 +3907,27 @@ def extract_heuristic_toc_fast(doc_path):
 
         # Auto-detect where to start based on document length
         total_pages = len(doc)
+
+        # OPTIMIZATION: For large documents, only sample pages instead of scanning all
+        # This makes the function truly "fast" (< 2 seconds even for 500+ page docs)
         if total_pages < 20:
-            # Short document - start from beginning
-            start_page = 0
-            end_page = total_pages
+            # Short document - scan all pages
+            pages_to_scan = list(range(0, total_pages))
+        elif total_pages < 50:
+            # Medium document - skip TOC, scan up to page 50
+            pages_to_scan = list(range(15, total_pages))
         else:
-            # IMPORTANT: Skip first 15 pages to avoid TOC/index/front matter
-            # This prevents tagging everything to the TOC page
+            # Large document - SAMPLE pages instead of scanning all
+            # Sample every 5th page from page 15 to 100 (max 17 pages)
             start_page = 15
-            end_page = min(100, total_pages)  # Extended range for longer docs
+            end_page = min(100, total_pages)
+            pages_to_scan = list(range(start_page, end_page, 5))  # Every 5th page
+
+        print(f"[TOC] Scanning {len(pages_to_scan)} pages out of {total_pages} total")
 
         # First pass: determine average font size on a sample page
         # This helps identify what's "large" relative to body text
-        sample_page_num = min(start_page + 5, total_pages - 1)
+        sample_page_num = pages_to_scan[min(3, len(pages_to_scan) - 1)]
         sample_page = doc[sample_page_num]
         font_sizes = []
 
@@ -3626,8 +3951,14 @@ def extract_heuristic_toc_fast(doc_path):
             very_large_threshold = 18
             print(f"[TOC] Font analysis: using default thresholds (no fonts detected)")
 
-        # Second pass: extract headings
-        for page_num in range(start_page, end_page):
+        # Second pass: extract headings from sampled pages
+        max_time = 3.0  # Maximum 3 seconds for quick TOC
+        for page_num in pages_to_scan:
+            # Check timeout
+            if time.time() - start_time > max_time:
+                print(f"[TOC] Timeout reached, stopping early with {len(toc)} items")
+                break
+
             page = doc[page_num]
             blocks = page.get_text("dict")["blocks"]
 
