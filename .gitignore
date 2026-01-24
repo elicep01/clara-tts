@@ -26,3 +26,8 @@ Thumbs.db
 *.db
 uploads/
 sessions/
+
+# Backup files
+*.backup
+*.bak
+debug_*.py
