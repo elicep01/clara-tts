@@ -291,8 +291,23 @@ export class ReadingManager {
 
         if (!parent) return;
 
-        // Check if we're in continuous mode
-        const inContinuousMode = parent.classList.contains('continuous-page');
+        // Check if we're in continuous mode - could be directly in continuous-page
+        // OR nested inside a browse wrapper that's in continuous-page
+        let inContinuousMode = parent.classList.contains('continuous-page');
+
+        // Check if parent is a browse wrapper inside continuous-page (nested structure)
+        if (!inContinuousMode && parent.classList.contains('page-image-wrapper') && parent.classList.contains('browse-mode')) {
+            const grandparent = parent.parentNode;
+            if (grandparent && grandparent.classList.contains('continuous-page')) {
+                // Reading wrapper is nested inside browse wrapper
+                // Move img back to browse wrapper and remove reading wrapper
+                if (img) {
+                    parent.insertBefore(img, wrapper);
+                }
+                wrapper.remove();
+                return;
+            }
+        }
 
         if (inContinuousMode) {
             // In continuous mode, check if there's already a browse wrapper

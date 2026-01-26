@@ -31,3 +31,6 @@ sessions/
 *.backup
 *.bak
 debug_*.py
+
+*.dmg
+venv/
