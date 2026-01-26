@@ -1124,17 +1124,19 @@ def pause():
 @app.route('/ask', methods=['POST'])
 def ask_question():
     """Answer a question about the document with context awareness"""
-    if not current_document:
-        return jsonify({'error': 'No document loaded'}), 400
-    
     data = request.get_json()
     question = data.get('question', '')
     current_page_num = data.get('page_num')  # Current page number (optional)
     current_page_text = data.get('page_text', '')  # Current page text (optional)
-    
+    doc_id = data.get('doc_id', '')  # Document ID (optional)
+
     if not question:
         return jsonify({'error': 'No question provided'}), 400
-    
+
+    # Check if we have enough context to answer
+    if not current_document and not current_page_text:
+        return jsonify({'error': 'No document context available'}), 400
+
     try:
         # Detect if question refers to current page/chapter
         question_lower = question.lower()
@@ -1143,23 +1145,30 @@ def ask_question():
             'summarize this', 'summarize the page', 'what is on this page',
             'what does this page say', 'explain this page', 'what is this page about'
         ])
-        
+
+        context_chunks = []
+
         # If question is about current page and we have page text, prioritize it
         if is_page_specific and current_page_text:
             # Use current page as primary context
             context = current_page_text[:2000]  # Use up to 2000 chars of current page
-            # Also get some relevant chunks from RAG for additional context
-            context_chunks = query_document(question, n_results=2)
-            if context_chunks:
-                context += "\n\nAdditional context:\n" + "\n\n".join(context_chunks[:2])
+            # Also get some relevant chunks from RAG for additional context (if embeddings exist)
+            if current_document:
+                context_chunks = query_document(question, n_results=2)
+                if context_chunks:
+                    context += "\n\nAdditional context:\n" + "\n\n".join(context_chunks[:2])
+        elif current_page_text:
+            # Use page text as primary context even for general questions
+            context = f"Document content:\n{current_page_text[:2000]}"
+            # Try RAG if available
+            if current_document:
+                context_chunks = query_document(question, n_results=3)
+                if context_chunks:
+                    context += "\n\nAdditional relevant sections:\n" + "\n\n".join(context_chunks)
         else:
-            # Standard RAG approach
+            # Standard RAG approach (requires current_document)
             context_chunks = query_document(question, n_results=3)
             context = "\n\n".join(context_chunks)
-            
-            # If we have current page text, add it as additional context
-            if current_page_text:
-                context = f"Current page content:\n{current_page_text[:1000]}\n\n" + context
 
         # Get answer from AI (local LLM)
         answer = call_ai_with_fallback(question, context, is_page_specific=is_page_specific)

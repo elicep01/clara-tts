@@ -507,6 +507,7 @@
                 <div class="settings-tabs">
                     <button class="settings-tab active" data-tab="llm">AI Models</button>
                     <button class="settings-tab" data-tab="voices">Voices</button>
+                    <button class="settings-tab" data-tab="reading">Reading</button>
                     <button class="settings-tab" data-tab="about">About</button>
                 </div>
 
@@ -578,6 +579,50 @@
                                     <div class="spinner"></div>
                                     <span>Loading voices...</span>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Reading Tab -->
+                    <div class="settings-tab-content" id="settings-tab-reading">
+                        <div class="reading-settings-section">
+                            <h4>Word Highlighting</h4>
+                            <p class="section-desc">Control how words are highlighted during reading</p>
+
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <span class="setting-label">Show word highlight</span>
+                                    <span class="setting-desc">Highlight the current word being read with a yellow overlay</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="setting-highlight-enabled" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <span class="setting-label">Show read words</span>
+                                    <span class="setting-desc">Gray out words that have already been read on the current line</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="setting-show-read-words" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="reading-settings-section">
+                            <h4>Auto-Advance</h4>
+                            <div class="setting-item">
+                                <div class="setting-info">
+                                    <span class="setting-label">Auto-advance to next page</span>
+                                    <span class="setting-desc">Automatically move to the next page when reading completes</span>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="setting-auto-advance" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
                             </div>
                         </div>
                     </div>

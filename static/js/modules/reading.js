@@ -237,8 +237,9 @@ export class ReadingManager {
             this.audio.pause();
         }
 
-        // Clean up the reading wrapper from current page
-        this.cleanupReadingWrapper();
+        // Store reference to old page wrapper BEFORE incrementing page
+        const oldPageNum = this.state.viewerCurrentPage;
+        const oldWrapper = document.querySelector(`.page-image-wrapper.reading-mode[data-reading-page="${oldPageNum}"]`);
 
         this.wordBoxes = [];
         this.lastHighlightedIndex = -1;
@@ -260,17 +261,29 @@ export class ReadingManager {
         this.state.readingSession = null;
         this.state.currentWordIndex = 0;
 
+        // Start loading new page FIRST, then cleanup old wrapper
         if (this.preloadedAudio.pageNum === this.state.viewerCurrentPage && this.preloadedAudio.audioBlob) {
             await this.usePreloadedAudio();
         } else {
             this.state.words = [];
             await this.start();
         }
+
+        // NOW cleanup the old page wrapper (after new page is ready)
+        if (oldWrapper) {
+            this.cleanupOldPageWrapper(oldWrapper);
+        }
     }
 
     cleanupReadingWrapper() {
         // Remove the reading wrapper and restore the page to browse mode
         const wrapper = document.querySelector('.page-image-wrapper.reading-mode');
+        if (!wrapper) return;
+        this.cleanupOldPageWrapper(wrapper);
+    }
+
+    cleanupOldPageWrapper(wrapper) {
+        // Remove a specific reading wrapper and restore the page
         if (!wrapper) return;
 
         const img = wrapper.querySelector('img');
@@ -341,8 +354,9 @@ export class ReadingManager {
             this.audio.pause();
         }
 
-        // Clean up the reading wrapper from current page
-        this.cleanupReadingWrapper();
+        // Store reference to old page wrapper BEFORE changing page
+        const oldPageNum = this.state.viewerCurrentPage;
+        const oldWrapper = document.querySelector(`.page-image-wrapper.reading-mode[data-reading-page="${oldPageNum}"]`);
 
         this.wordBoxes = [];
         this.lastHighlightedIndex = -1;
@@ -361,7 +375,13 @@ export class ReadingManager {
             }
         });
 
+        // Start new page FIRST, then cleanup old
         await this.start();
+
+        // NOW cleanup the old page wrapper (after new page is ready)
+        if (oldWrapper) {
+            this.cleanupOldPageWrapper(oldWrapper);
+        }
     }
 
     updatePageNav() {
@@ -1031,6 +1051,10 @@ export class ReadingManager {
     highlightWord(index) {
         if (!this.state.isReadingMode) return;
 
+        // Check reading settings
+        const highlightEnabled = this.clara.settingsManager?.getReadingSetting('highlightEnabled') ?? true;
+        const showReadWords = this.clara.settingsManager?.getReadingSetting('showReadWords') ?? true;
+
         // Only update changed boxes (incremental update)
         const prevIndex = this.lastHighlightedIndex;
 
@@ -1063,8 +1087,8 @@ export class ReadingManager {
             this.wordBoxes[prevIndex].classList.remove('active');
         }
 
-        // Mark words on CURRENT LINE before current word as read
-        if (currentLineY !== null && index > 0) {
+        // Mark words on CURRENT LINE before current word as read (if setting enabled)
+        if (showReadWords && currentLineY !== null && index > 0) {
             for (let i = 0; i < index && i < this.wordBoxes.length; i++) {
                 const word = this.state.words[i];
                 // Only gray words on the same line as current word
@@ -1074,10 +1098,12 @@ export class ReadingManager {
             }
         }
 
-        // Set current as active
+        // Set current as active (if highlight setting enabled)
         if (index >= 0 && index < this.wordBoxes.length) {
             const currentBox = this.wordBoxes[index];
-            currentBox.classList.add('active');
+            if (highlightEnabled) {
+                currentBox.classList.add('active');
+            }
             currentBox.classList.remove('read');
 
             // Throttled scroll - only scroll if needed and not already scrolling
@@ -1265,8 +1291,11 @@ export class ReadingManager {
         this.state.isPlaying = false;
         this.updatePlayPauseButton();
 
-        // Check if there's a next page to read
-        if (this.state.viewerCurrentPage < this.state.viewerPageCount - 1) {
+        // Check auto-advance setting
+        const autoAdvance = this.clara.settingsManager?.getReadingSetting('autoAdvance') ?? true;
+
+        // Check if there's a next page to read and auto-advance is enabled
+        if (autoAdvance && this.state.viewerCurrentPage < this.state.viewerPageCount - 1) {
             console.log('[AudioEnded] Auto-advancing to next page');
             this.clara.ui.showToast('Moving to next page...');
 
@@ -1278,9 +1307,12 @@ export class ReadingManager {
 
             // Advance to next page
             await this.nextPage();
-        } else {
+        } else if (this.state.viewerCurrentPage >= this.state.viewerPageCount - 1) {
             // Last page - finished reading document
             this.clara.ui.showToast('Finished reading document');
+        } else {
+            // Auto-advance disabled - just finished this page
+            this.clara.ui.showToast('Page finished. Press next to continue.');
         }
     }
 
@@ -1376,7 +1408,8 @@ export class ReadingManager {
             const requestBody = {
                 question: question,
                 page_num: this.state.viewerCurrentPage,
-                page_text: this.state.pageText || ''
+                page_text: this.state.pageText || '',
+                doc_id: this.state.viewerDocId || ''
             };
 
             const res = await fetch('/ask', {

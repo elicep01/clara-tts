@@ -5,6 +5,13 @@ export class SettingsManager {
     constructor(clara) {
         this.clara = clara;
         this.state = clara.state;
+
+        // Reading settings defaults
+        this.readingSettings = {
+            highlightEnabled: true,
+            showReadWords: true,
+            autoAdvance: true
+        };
     }
 
     setup() {
@@ -35,6 +42,67 @@ export class SettingsManager {
         document.getElementById('btn-refresh-llm').addEventListener('click', () => {
             this.loadLLMStatus();
         });
+
+        // Setup reading settings
+        this.setupReadingSettings();
+    }
+
+    setupReadingSettings() {
+        // Load saved settings from localStorage
+        this.loadReadingSettings();
+
+        // Setup toggle event listeners
+        const highlightToggle = document.getElementById('setting-highlight-enabled');
+        const showReadToggle = document.getElementById('setting-show-read-words');
+        const autoAdvanceToggle = document.getElementById('setting-auto-advance');
+
+        if (highlightToggle) {
+            highlightToggle.checked = this.readingSettings.highlightEnabled;
+            highlightToggle.addEventListener('change', (e) => {
+                this.readingSettings.highlightEnabled = e.target.checked;
+                this.saveReadingSettings();
+            });
+        }
+
+        if (showReadToggle) {
+            showReadToggle.checked = this.readingSettings.showReadWords;
+            showReadToggle.addEventListener('change', (e) => {
+                this.readingSettings.showReadWords = e.target.checked;
+                this.saveReadingSettings();
+            });
+        }
+
+        if (autoAdvanceToggle) {
+            autoAdvanceToggle.checked = this.readingSettings.autoAdvance;
+            autoAdvanceToggle.addEventListener('change', (e) => {
+                this.readingSettings.autoAdvance = e.target.checked;
+                this.saveReadingSettings();
+            });
+        }
+    }
+
+    loadReadingSettings() {
+        try {
+            const saved = localStorage.getItem('clara_reading_settings');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                this.readingSettings = { ...this.readingSettings, ...parsed };
+            }
+        } catch (e) {
+            console.warn('Failed to load reading settings:', e);
+        }
+    }
+
+    saveReadingSettings() {
+        try {
+            localStorage.setItem('clara_reading_settings', JSON.stringify(this.readingSettings));
+        } catch (e) {
+            console.warn('Failed to save reading settings:', e);
+        }
+    }
+
+    getReadingSetting(key) {
+        return this.readingSettings[key];
     }
 
     showModal() {
