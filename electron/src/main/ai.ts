@@ -15,26 +15,77 @@ function getGeminiKey(): string {
 const GEMINI_API_KEY = getGeminiKey();
 const GEMINI_MODEL = 'gemini-2.5-flash';
 
-export async function askGemini(question: string, context: string): Promise<string> {
+export async function askGemini(question: string, pageText: string, pageNum?: number, docId?: string): Promise<any> {
+    // Detect if question is page-specific
+    const questionLower = question.toLowerCase();
+    const isPageSpecific = ['this page', 'current page', 'this chapter', 'current chapter',
+        'summarize this', 'summarize the page', 'what is on this page',
+        'what does this page say', 'explain this page', 'what is this page about']
+        .some(phrase => questionLower.includes(phrase));
+
+    // Build context
+    let context = '';
+    if (pageText) {
+        context = isPageSpecific
+            ? `Current page content:\n${pageText.substring(0, 2000)}`
+            : `Document content:\n${pageText.substring(0, 2000)}`;
+    }
+
     const prompt = context
-        ? `Context: ${context}\n\nQuestion: ${question}\n\nProvide a concise answer based on the context.`
+        ? `${context}\n\nQuestion: ${question}\n\nProvide a concise, clear answer based on the context above.`
         : question;
 
     try {
         const response = await callGeminiAPI(prompt);
-        return response;
+        return {
+            answer: response,
+            context_used: context ? 1 : 0
+        };
     } catch (error) {
         console.error('[Gemini] Error:', error);
         throw new Error(`AI request failed: ${error}`);
     }
 }
 
-export async function defineWord(word: string, context: string): Promise<string> {
-    const prompt = `Define the word "${word}" as used in this context: "${context}". Give a concise definition relevant to how it's used here.`;
+export async function defineWord(word: string, contextSentence: string, fullContext?: string): Promise<any> {
+    const contextToUse = contextSentence || fullContext || 'general usage';
+
+    const prompt = `Define the word "${word}" as used in this context: "${contextToUse}"
+
+Return ONLY a JSON object in this exact format (no markdown, no code fences):
+{"word":"${word}","meanings":[{"partOfSpeech":"noun/verb/adjective/etc","definitions":[{"definition":"Clear 1-2 sentence definition"}]}]}
+
+Rules:
+- If it's an acronym, expand it first
+- If it's technical jargon, explain simply
+- Keep definition concise (under 2 sentences)
+- Return ONLY the JSON, nothing else`;
 
     try {
         const response = await callGeminiAPI(prompt);
-        return response;
+
+        // Try to parse JSON from response
+        try {
+            // Remove markdown code fences if present
+            let cleanResponse = response.trim();
+            if (cleanResponse.startsWith('```')) {
+                cleanResponse = cleanResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+            }
+
+            const jsonData = JSON.parse(cleanResponse);
+            return jsonData;
+        } catch (parseError) {
+            // If JSON parsing fails, return a simple structure
+            return {
+                word: word,
+                meanings: [{
+                    partOfSpeech: "unknown",
+                    definitions: [{
+                        definition: response.trim()
+                    }]
+                }]
+            };
+        }
     } catch (error) {
         console.error('[Gemini] Error:', error);
         throw new Error(`Definition request failed: ${error}`);

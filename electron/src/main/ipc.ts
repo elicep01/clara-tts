@@ -4,8 +4,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { extractPDFInfo, renderPDFPage, extractPDFText, extractPDFWords } from './pdf';
-import { generateAudioWithTimings, getWordTimings } from './tts';
-import { askGemini } from './ai';
+import { generateAudioWithTimings, getWordTimings, getAvailableVoices, generatePreviewAudio } from './tts';
+import { askGemini, defineWord } from './ai';
 
 export function setupIPCHandlers(ipc: typeof ipcMain): void {
     // ============================================
@@ -42,8 +42,9 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
         const id = randomUUID();
         const filePath = path.join(getDocumentsFolder(), `${id}${path.extname(filename)}`);
 
-        // Save file
-        fs.writeFileSync(filePath, buffer);
+        // Convert array back to Buffer and save file
+        const fileBuffer = Buffer.from(buffer);
+        fs.writeFileSync(filePath, fileBuffer);
 
         // Insert into database
         db.prepare('INSERT INTO documents (id, original_filename, file_path, folder_id) VALUES (?, ?, ?, ?)')
@@ -73,6 +74,21 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
     ipc.handle('library:moveDocument', async (_event: any, { doc_id, folder_id }: any) => {
         const db = getDatabase();
         db.prepare('UPDATE documents SET folder_id = ? WHERE id = ?').run(folder_id || null, doc_id);
+        return { success: true };
+    });
+
+    ipc.handle('library:renameFolder', async (_event: any, { folder_id, new_name }: any) => {
+        const db = getDatabase();
+        db.prepare('UPDATE folders SET name = ? WHERE id = ?').run(new_name, folder_id);
+        return { success: true };
+    });
+
+    ipc.handle('library:deleteFolder', async (_event: any, { folder_id }: any) => {
+        const db = getDatabase();
+        // Move documents in this folder to root
+        db.prepare('UPDATE documents SET folder_id = NULL WHERE folder_id = ?').run(folder_id);
+        // Delete the folder
+        db.prepare('DELETE FROM folders WHERE id = ?').run(folder_id);
         return { success: true };
     });
 
@@ -156,6 +172,16 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
         return { timings };
     });
 
+    ipc.handle('tts:getVoices', async () => {
+        const voices = await getAvailableVoices();
+        return { voices };
+    });
+
+    ipc.handle('tts:preview', async (_event: any, { voice_id, text }: any) => {
+        const audioBuffer = await generatePreviewAudio(voice_id, text);
+        return { audio: audioBuffer };
+    });
+
     // ============================================
     // NOTES
     // ============================================
@@ -172,20 +198,28 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
         return notes;
     });
 
-    ipc.handle('notes:create', async (_event: any, { doc_id, page_num, content, position_x, position_y }: any) => {
+    ipc.handle('notes:create', async (_event: any, { doc_id, page_num, content, position_x, position_y, anchor_text, anchor_type, question, color }: any) => {
         const db = getDatabase();
         const id = randomUUID();
-        db.prepare('INSERT INTO notes (id, doc_id, page_num, content, position_x, position_y) VALUES (?, ?, ?, ?, ?, ?)')
-            .run(id, doc_id, page_num, content, position_x, position_y);
+        db.prepare(`INSERT INTO notes (id, doc_id, page_num, content, position_x, position_y, anchor_text, anchor_type, question, color)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+            .run(id, doc_id, page_num, content, position_x || null, position_y || null, anchor_text || null, anchor_type || null, question || null, color || '#FFE066');
 
         const note = db.prepare('SELECT * FROM notes WHERE id = ?').get(id);
         return note;
     });
 
-    ipc.handle('notes:update', async (_event: any, { note_id, content }: any) => {
+    ipc.handle('notes:update', async (_event: any, { note_id, content, color }: any) => {
         const db = getDatabase();
-        db.prepare('UPDATE notes SET content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-            .run(content, note_id);
+        db.prepare('UPDATE notes SET content = ?, color = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+            .run(content, color || '#FFE066', note_id);
+        return { success: true };
+    });
+
+    ipc.handle('notes:updatePosition', async (_event: any, { note_id, position_x, position_y, anchor_text }: any) => {
+        const db = getDatabase();
+        db.prepare('UPDATE notes SET position_x = ?, position_y = ?, anchor_text = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+            .run(position_x, position_y, anchor_text || null, note_id);
         return { success: true };
     });
 
@@ -199,14 +233,14 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
     // AI / GEMINI
     // ============================================
 
-    ipc.handle('ai:ask', async (_event: any, { question, context }: any) => {
-        const answer = await askGemini(question, context);
-        return { answer };
+    ipc.handle('ai:ask', async (_event: any, { question, page_text, page_num, doc_id }: any) => {
+        const result = await askGemini(question, page_text || '', page_num, doc_id);
+        return result;
     });
 
-    ipc.handle('ai:defineWord', async (_event: any, { word, context }: any) => {
-        const definition = await askGemini(`Define the word "${word}" in context: ${context}`, '');
-        return { definition };
+    ipc.handle('ai:defineWord', async (_event: any, { word, context_sentence, full_context }: any) => {
+        const definition = await defineWord(word, context_sentence, full_context);
+        return definition;
     });
 
     // ============================================

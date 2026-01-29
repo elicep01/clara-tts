@@ -23,9 +23,17 @@ Thumbs.db
 # Local development
 .claude/
 *.log
-*.db
 uploads/
 sessions/
+
+# Keep clara.db but ignore other database files
+*.db
+!clara.db
+
+# Electron
+electron/node_modules/
+electron/dist/
+electron/build/
 
 # Backup files
 *.backup

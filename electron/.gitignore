@@ -1,19 +1,9 @@
-# Node modules
+# Dependencies
 node_modules/
 
 # Build output
 dist/
 build/
-
-# Renderer files (copied from web version)
-renderer/static/
-renderer/index.html
-
-# Keep adapter
-!renderer/electron-adapter.js
-
-# TypeScript cache
-*.tsbuildinfo
 
 # Logs
 *.log
@@ -21,17 +11,7 @@ npm-debug.log*
 
 # OS files
 .DS_Store
-Thumbs.db
 
 # IDE
 .vscode/
 .idea/
-*.swp
-*.swo
-
-# Package builds
-*.dmg
-*.exe
-*.AppImage
-*.deb
-*.rpm

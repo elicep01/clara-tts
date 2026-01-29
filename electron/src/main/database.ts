@@ -77,6 +77,10 @@ export async function initDatabase(): Promise<void> {
             content TEXT NOT NULL,
             position_x REAL,
             position_y REAL,
+            anchor_text TEXT,
+            anchor_type TEXT,
+            question TEXT,
+            color TEXT DEFAULT '#FFE066',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (doc_id) REFERENCES documents(id) ON DELETE CASCADE
