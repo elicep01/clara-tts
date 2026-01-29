@@ -1,0 +1,279 @@
+@import './design-tokens.css';
+
+/**
+ * CLARA - Elite Study Companion
+ * Premium, focused, intelligent
+ * 
+ * "The best tool is the one that disappears"
+ */
+
+/* ============================================
+   BASE & RESET
+   ============================================ */
+
+*,
+*::before,
+*::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+}
+
+body {
+    font-family: var(--font-ui-text);
+    font-size: var(--text-base);
+    line-height: var(--leading-normal);
+    color: var(--color-text-primary);
+    background: var(--color-bg-primary);
+    overflow: hidden;
+    letter-spacing: var(--tracking-tight);
+}
+
+/* Premium scrollbars */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--color-border-default);
+    border-radius: var(--radius-full);
+    border: 2px solid var(--color-bg-primary);
+    transition: background var(--duration-fast) var(--ease-out);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--color-border-medium);
+}
+
+::-webkit-scrollbar-thumb:active {
+    background: var(--color-border-strong);
+}
+
+/* Firefox scrollbars */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-default) transparent;
+}
+
+/* Text selection - Premium indigo */
+::selection {
+    background: var(--color-highlight-selection);
+    color: var(--color-text-primary);
+}
+
+::-moz-selection {
+    background: var(--color-highlight-selection);
+    color: var(--color-text-primary);
+}
+
+/* Focus rings - Accessible & beautiful */
+:focus {
+    outline: none;
+}
+
+:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+}
+
+/* App container */
+.app-container {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* ============================================
+   NAVIGATION BAR - Premium Glass Effect
+   ============================================ */
+
+.nav-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: var(--nav-height);
+    padding: 0 var(--space-5);
+    background: var(--color-bg-glass);
+    backdrop-filter: var(--nav-blur);
+    -webkit-backdrop-filter: var(--nav-blur);
+    border-bottom: var(--border-width-thin) solid var(--color-border-subtle);
+    z-index: var(--z-sticky);
+    flex-shrink: 0;
+    transition: all var(--duration-normal) var(--ease-smooth);
+}
+
+.nav-left,
+.nav-right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+.nav-title {
+    font-size: var(--text-md);
+    font-weight: var(--font-semibold);
+    letter-spacing: var(--tracking-tight);
+    color: var(--color-text-primary);
+    max-width: 400px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: color var(--duration-fast) var(--ease-out);
+}
+
+/* Navigation buttons - Premium pill style */
+.nav-btn {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    border-radius: var(--radius-lg);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition: all var(--duration-fast) var(--ease-smooth);
+    position: relative;
+}
+
+.nav-btn svg {
+    width: 20px;
+    height: 20px;
+    stroke-width: 2;
+    transition: transform var(--duration-fast) var(--ease-spring);
+}
+
+.nav-btn:hover {
+    background: var(--hover-bg-medium);
+    color: var(--color-text-primary);
+}
+
+.nav-btn:hover svg {
+    transform: scale(1.05);
+}
+
+.nav-btn:active {
+    background: var(--active-bg);
+    transform: scale(var(--active-scale));
+}
+
+.nav-btn.hidden {
+    display: none;
+}
+
+/* Zoom controls - Refined group */
+.zoom-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-1);
+    background: var(--color-bg-secondary);
+    border-radius: var(--radius-lg);
+    margin-right: var(--space-3);
+}
+
+.zoom-level {
+    min-width: 48px;
+    text-align: center;
+    font-size: var(--text-sm);
+    font-weight: var(--font-medium);
+    color: var(--color-text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Voice selector - Premium dropdown */
+.voice-selector {
+    position: relative;
+}
+
+.voice-dropdown {
+    position: absolute;
+    top: calc(100% + var(--space-2));
+    right: 0;
+    min-width: 200px;
+    background: var(--color-bg-elevated);
+    border: var(--border-width) solid var(--color-border-default);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-xl);
+    padding: var(--space-2);
+    z-index: var(--z-dropdown);
+    opacity: 0;
+    transform: translateY(-8px);
+    pointer-events: none;
+    transition: all var(--duration-normal) var(--ease-smooth);
+}
+
+.voice-dropdown:not(.hidden) {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: all;
+}
+
+.voice-option {
+    display: flex;
+    flex-direction: column;
+    padding: var(--space-3);
+    border-radius: var(--radius-lg);
+    cursor: pointer;
+    transition: all var(--duration-fast) var(--ease-out);
+}
+
+.voice-option:hover {
+    background: var(--hover-bg-subtle);
+}
+
+.voice-option.active {
+    background: var(--color-primary-subtle);
+}
+
+.voice-name {
+    font-size: var(--text-sm);
+    font-weight: var(--font-medium);
+    color: var(--color-text-primary);
+    margin-bottom: var(--space-0-5);
+}
+
+.voice-desc {
+    font-size: var(--text-xs);
+    color: var(--color-text-tertiary);
+}
+
+/* Notes badge - Premium indicator */
+.notes-badge {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 var(--space-1-5);
+    background: var(--color-error);
+    color: white;
+    font-size: var(--text-2xs);
+    font-weight: var(--font-semibold);
+    border-radius: var(--radius-full);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 0 2px var(--color-bg-elevated);
+    font-variant-numeric: tabular-nums;
+}
+
+.notes-badge.hidden {
+    display: none;
+}

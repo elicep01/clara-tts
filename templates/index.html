@@ -135,6 +135,14 @@
                         </div>
                     </div>
                 </div>
+                <button class="nav-btn" id="btn-study-session" title="Study Together">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                        <circle cx="9" cy="7" r="4"/>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                    </svg>
+                </button>
                 <button class="nav-btn" id="btn-settings" title="Settings">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <circle cx="12" cy="12" r="3"/>
@@ -663,6 +671,159 @@
                                     </svg>
                                     <span>Notes & Highlights</span>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Study Session Modal -->
+        <div id="study-modal" class="modal hidden">
+            <div class="modal-backdrop"></div>
+            <div class="modal-content study-modal-content">
+                <div class="modal-header">
+                    <h2>Study Together</h2>
+                    <button class="btn-icon" id="btn-close-study-modal">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <!-- Menu View -->
+                    <div id="study-menu" class="study-section">
+                        <p class="study-desc">Read together with friends in real-time. Share your document, sync reading progress, and chat while studying.</p>
+                        <div class="study-options">
+                            <button class="study-option-btn" id="btn-create-session">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="12" cy="12" r="10"/>
+                                    <line x1="12" y1="8" x2="12" y2="16"/>
+                                    <line x1="8" y1="12" x2="16" y2="12"/>
+                                </svg>
+                                <span>Start Session</span>
+                                <small>Create a new study session</small>
+                            </button>
+                            <button class="study-option-btn" id="btn-join-session">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                                    <circle cx="9" cy="7" r="4"/>
+                                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                                </svg>
+                                <span>Join Session</span>
+                                <small>Enter a session code</small>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Create Session Form -->
+                    <div id="study-create-form" class="study-section hidden">
+                        <button class="btn-back-link" id="btn-back-to-study-menu">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M19 12H5M12 19l-7-7 7-7"/>
+                            </svg>
+                            Back
+                        </button>
+                        <h3>Start a Study Session</h3>
+                        <p class="study-desc">Your current document will be shared with participants.</p>
+                        <div class="form-group">
+                            <label>Your Name</label>
+                            <input type="text" id="create-host-name" placeholder="Enter your name" maxlength="20">
+                        </div>
+                        <div class="form-group">
+                            <label>Document Name</label>
+                            <input type="text" id="create-doc-name" placeholder="Document name" maxlength="50">
+                        </div>
+                        <button class="btn-primary btn-full" id="btn-start-session">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="5 3 19 12 5 21 5 3"/>
+                            </svg>
+                            Start Session
+                        </button>
+                    </div>
+
+                    <!-- Join Session Form -->
+                    <div id="study-join-form" class="study-section hidden">
+                        <button class="btn-back-link" id="btn-back-to-study-menu-join">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M19 12H5M12 19l-7-7 7-7"/>
+                            </svg>
+                            Back
+                        </button>
+                        <h3>Join a Study Session</h3>
+                        <p class="study-desc">Enter the 6-character code shared by the host.</p>
+                        <div class="form-group">
+                            <label>Session Code</label>
+                            <input type="text" id="join-session-code" placeholder="ABC123" maxlength="6" class="code-input">
+                        </div>
+                        <div class="form-group">
+                            <label>Your Name</label>
+                            <input type="text" id="join-user-name" placeholder="Enter your name" maxlength="20">
+                        </div>
+                        <button class="btn-primary btn-full" id="btn-connect-session">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                                <circle cx="9" cy="7" r="4"/>
+                            </svg>
+                            Join Session
+                        </button>
+                    </div>
+
+                    <!-- Active Session View -->
+                    <div id="study-active-session" class="study-section hidden">
+                        <div class="session-header">
+                            <div class="session-info">
+                                <div class="session-code-box">
+                                    <span class="label">Session Code</span>
+                                    <span class="code" id="session-code-display">------</span>
+                                </div>
+                                <div class="session-doc">
+                                    <span class="label">Document</span>
+                                    <span id="session-doc-name">Document</span>
+                                </div>
+                            </div>
+                            <button class="btn-danger btn-small" id="btn-leave-study">Leave</button>
+                        </div>
+
+                        <div class="session-participants">
+                            <h4>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                                    <circle cx="9" cy="7" r="4"/>
+                                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                                </svg>
+                                Participants (<span id="participant-count">0</span>)
+                            </h4>
+                            <div id="participants-list" class="participants-list"></div>
+                        </div>
+
+                        <div class="session-sync">
+                            <label class="toggle-switch-inline">
+                                <input type="checkbox" id="study-sync-toggle" checked>
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-label">Sync with reader</span>
+                            </label>
+                        </div>
+
+                        <div class="session-chat">
+                            <h4>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                                </svg>
+                                Chat
+                            </h4>
+                            <div id="study-chat-messages" class="chat-messages"></div>
+                            <div class="chat-input-area">
+                                <input type="text" id="study-chat-input" placeholder="Type a message...">
+                                <button class="btn-icon" id="btn-send-chat">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <line x1="22" y1="2" x2="11" y2="13"/>
+                                        <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                                    </svg>
+                                </button>
                             </div>
                         </div>
                     </div>

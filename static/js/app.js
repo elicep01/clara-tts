@@ -16,6 +16,7 @@ import { VoiceSelectorManager } from './modules/voice-selector.js';
 import { SettingsManager } from './modules/settings.js';
 import { TOCManager } from './modules/toc.js';
 import { PomodoroTimer } from './modules/pomodoro.js';
+import { StudySessionManager } from './modules/study-session.js';
 
 class Clara {
     constructor() {
@@ -37,6 +38,7 @@ class Clara {
         this.settings = new SettingsManager(this);
         this.toc = new TOCManager(this);
         this.pomodoro = new PomodoroTimer();
+        this.studySession = new StudySessionManager(this);
 
         // Check for first launch before initializing
         this.checkFirstLaunch();
@@ -74,6 +76,7 @@ class Clara {
         this.voiceSelector.setup();
         this.settings.setup();
         this.toc.setup();
+        this.studySession.setup();
 
         // Load saved voice preference
         await this.loadSavedVoice();

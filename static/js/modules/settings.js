@@ -61,6 +61,8 @@ export class SettingsManager {
             highlightToggle.addEventListener('change', (e) => {
                 this.readingSettings.highlightEnabled = e.target.checked;
                 this.saveReadingSettings();
+                // Immediately apply change to current reading session
+                this.applyReadingSettingChange('highlight', e.target.checked);
             });
         }
 
@@ -69,6 +71,8 @@ export class SettingsManager {
             showReadToggle.addEventListener('change', (e) => {
                 this.readingSettings.showReadWords = e.target.checked;
                 this.saveReadingSettings();
+                // Immediately apply change to current reading session
+                this.applyReadingSettingChange('readWords', e.target.checked);
             });
         }
 
@@ -103,6 +107,27 @@ export class SettingsManager {
 
     getReadingSetting(key) {
         return this.readingSettings[key];
+    }
+
+    applyReadingSettingChange(setting, enabled) {
+        // Immediately apply setting changes to the current reading session
+        if (!this.clara.reading) return;
+
+        if (setting === 'highlight') {
+            if (!enabled) {
+                // Remove all active highlights
+                document.querySelectorAll('.word-box.active').forEach(el => {
+                    el.classList.remove('active');
+                });
+            }
+        } else if (setting === 'readWords') {
+            if (!enabled) {
+                // Remove all read word overlays
+                document.querySelectorAll('.word-box.read').forEach(el => {
+                    el.classList.remove('read');
+                });
+            }
+        }
     }
 
     showModal() {

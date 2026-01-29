@@ -172,6 +172,12 @@ export class ReadingManager {
                 this.state.currentWordIndex = this.pendingWordIndex || 0;
             }
 
+            // START AUDIO GENERATION EARLY (don't await yet)
+            // This runs in parallel while we set up the UI
+            this.clara.ui.showInlineLoading('Generating audio...');
+            const audioPromise = this.generateAudioInBackground();
+
+            // Set up UI while audio generates in background
             this.enterReadingMode();
             this.createWordOverlay(); // Synchronous, fast
 
@@ -181,13 +187,88 @@ export class ReadingManager {
 
             this.updateProgress();
             this.updatePageNav();
-            this.clara.ui.hideInlineLoading();
 
-            // Start audio generation (async, shows its own loading)
-            this.playPageAudio();
+            // NOW wait for audio to be ready
+            await audioPromise;
 
         } catch (err) {
             this.clara.ui.showToast('Failed to start reading: ' + err.message, true);
+            this.clara.ui.hideInlineLoading();
+        }
+    }
+
+    async generateAudioInBackground() {
+        // Generate audio and start playback when ready
+        if (this.state.words.length === 0) {
+            this.clara.ui.hideInlineLoading();
+            return;
+        }
+
+        const MAX_WORDS = 500;
+        let textToRead = this.state.pageText;
+        let wordsToHighlight = this.state.words;
+        const wordCount = Math.min(this.state.words.length, MAX_WORDS);
+
+        // Show informative loading based on text size
+        if (wordCount > 300) {
+            this.clara.ui.showInlineLoading(`Generating audio (${wordCount} words)...`);
+        } else {
+            this.clara.ui.showInlineLoading('Generating audio...');
+        }
+
+        if (this.state.words.length > MAX_WORDS) {
+            wordsToHighlight = this.state.words.slice(0, MAX_WORDS);
+            textToRead = wordsToHighlight.map(w => w.text).join(' ');
+        }
+
+        try {
+            const res = await fetch('/play-text', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: textToRead,
+                    voice: this.state.selectedVoice
+                })
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                this.clara.ui.showToast(err.error || 'Playback failed', true);
+                this.clara.ui.hideInlineLoading();
+                return;
+            }
+
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+
+            this.audio.src = url;
+            this.audio.playbackRate = this.state.playbackSpeed;
+
+            // Temporarily use limited words for timing
+            const originalWords = this.state.words;
+            this.state.words = wordsToHighlight;
+
+            await this.fetchActualWordTimings();
+
+            this.state.words = originalWords;
+
+            // Resume from saved position if needed
+            const resumeWordIndex = this.state.currentWordIndex;
+            if (resumeWordIndex > 0 && resumeWordIndex < wordsToHighlight.length && this.wordTimings.length > resumeWordIndex) {
+                const timing = this.wordTimings[resumeWordIndex];
+                if (timing) {
+                    this.audio.currentTime = timing.start;
+                }
+            }
+
+            this.audio.play();
+            this.clara.ui.hideInlineLoading();
+
+            // Preload next page
+            this.preloadNextPageAudio();
+
+        } catch (err) {
+            this.clara.ui.showToast('Playback failed: ' + err.message, true);
             this.clara.ui.hideInlineLoading();
         }
     }
@@ -273,6 +354,9 @@ export class ReadingManager {
         if (oldWrapper) {
             this.cleanupOldPageWrapper(oldWrapper);
         }
+
+        // Sync page change to study session
+        this.clara.studySession?.syncPageChange(this.state.viewerCurrentPage);
     }
 
     cleanupReadingWrapper() {
@@ -397,6 +481,9 @@ export class ReadingManager {
         if (oldWrapper) {
             this.cleanupOldPageWrapper(oldWrapper);
         }
+
+        // Sync page change to study session
+        this.clara.studySession?.syncPageChange(this.state.viewerCurrentPage);
     }
 
     updatePageNav() {
@@ -1277,6 +1364,8 @@ export class ReadingManager {
         this.audio.pause();
         this.state.isPlaying = false;
         this.updatePlayPauseButton();
+        // Sync reading state to study session
+        this.clara.studySession?.syncReadingState(false, this.state.currentWordIndex);
     }
 
     resume() {
@@ -1287,6 +1376,8 @@ export class ReadingManager {
         }
         this.state.isPlaying = true;
         this.updatePlayPauseButton();
+        // Sync reading state to study session
+        this.clara.studySession?.syncReadingState(true, this.state.currentWordIndex);
     }
 
     updatePlayPauseButton() {

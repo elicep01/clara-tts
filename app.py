@@ -16,7 +16,10 @@ from pathlib import Path
 from datetime import datetime
 import webview
 from flask import Flask, render_template, request, jsonify, Response, send_file
+from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.utils import secure_filename
+import random
+import string
 import pypdf
 from sentence_transformers import SentenceTransformer
 import chromadb
@@ -49,7 +52,11 @@ VOICES_FOLDER = CLARA_HOME / 'voices'
 MODELS_FOLDER = CLARA_HOME / 'models'
 AUDIO_CACHE_FOLDER = CLARA_HOME / 'audio_cache'
 TOC_CACHE_FOLDER = CLARA_HOME / 'toc_cache'
+STUDY_SESSIONS_FOLDER = CLARA_HOME / 'study_sessions'
 DATABASE_PATH = CLARA_HOME / 'clara.db'
+
+# Study session storage (in-memory for active sessions)
+study_sessions = {}  # code -> session data
 CONFIG_PATH = CLARA_HOME / 'config.json'
 ALLOWED_EXTENSIONS = {'pdf', 'txt', 'md'}
 
@@ -488,6 +495,7 @@ def init_storage():
     MODELS_FOLDER.mkdir(exist_ok=True)
     AUDIO_CACHE_FOLDER.mkdir(exist_ok=True)
     TOC_CACHE_FOLDER.mkdir(exist_ok=True)
+    STUDY_SESSIONS_FOLDER.mkdir(exist_ok=True)
     init_database()
 
 def init_database():
@@ -584,6 +592,10 @@ current_position = 0
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = DOCUMENTS_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
+app.config['SECRET_KEY'] = 'clara-study-session-secret'
+
+# Initialize SocketIO for real-time study sessions
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # Disable caching for static files to ensure fresh JS/CSS loads
 @app.after_request
@@ -771,40 +783,41 @@ def generate_audio_with_timings(text, voice=None, timeout=30):
             import asyncio
 
             temp_audio = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
+            temp_path = temp_audio.name
             temp_audio.close()
 
             async def generate_with_timings():
-                """Stream audio and capture word boundaries from the SAME stream"""
+                """Stream audio directly to file and capture word boundaries"""
                 nonlocal word_timings
                 communicate = edge_tts.Communicate(text, voice_name)
 
-                audio_chunks = []
+                # Write chunks directly to file as they arrive (faster, less memory)
+                with open(temp_path, 'wb') as f:
+                    async for chunk in communicate.stream():
+                        if chunk["type"] == "audio":
+                            f.write(chunk["data"])
+                        elif chunk["type"] == "WordBoundary":
+                            offset_sec = chunk["offset"] / 10_000_000
+                            duration_sec = chunk["duration"] / 10_000_000
+                            word_timings.append({
+                                "text": chunk["text"],
+                                "offset": offset_sec,
+                                "duration": duration_sec
+                            })
 
-                async for chunk in communicate.stream():
-                    if chunk["type"] == "audio":
-                        audio_chunks.append(chunk["data"])
-                    elif chunk["type"] == "WordBoundary":
-                        # Convert 100-nanosecond units to seconds
-                        offset_sec = chunk["offset"] / 10_000_000
-                        duration_sec = chunk["duration"] / 10_000_000
-                        word_timings.append({
-                            "text": chunk["text"],
-                            "offset": offset_sec,
-                            "duration": duration_sec
-                        })
-
-                # Write all audio chunks to file
-                with open(temp_audio.name, 'wb') as f:
-                    for audio_chunk in audio_chunks:
-                        f.write(audio_chunk)
-
+            # Use get_event_loop for better performance with existing loop
             try:
-                asyncio.run(asyncio.wait_for(generate_with_timings(), timeout=timeout))
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(asyncio.wait_for(generate_with_timings(), timeout=timeout))
+                finally:
+                    loop.close()
             except asyncio.TimeoutError:
                 raise Exception(f"Audio generation timed out after {timeout} seconds.")
 
             print(f"[TTS] Generated audio with {len(word_timings)} synchronized word timings")
-            return temp_audio.name, word_timings
+            return temp_path, word_timings
         else:
             # Fallback to macOS TTS (no word timings available)
             temp_audio = tempfile.NamedTemporaryFile(suffix='.aiff', delete=False)
@@ -1667,6 +1680,26 @@ def get_document_info(doc_id):
             result['error'] = str(e)
 
     return jsonify(result)
+
+@app.route('/document/<doc_id>/file', methods=['GET'])
+def get_document_file(doc_id):
+    """Get the raw document file for study session sharing"""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute('SELECT file_path, original_filename FROM documents WHERE id = ?', (doc_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({'error': 'Document not found'}), 404
+
+    filepath = row['file_path']
+    filename = row['original_filename']
+
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found'}), 404
+
+    return send_file(filepath, as_attachment=False, download_name=filename)
 
 @app.route('/document/<doc_id>/page/<int:page_num>', methods=['GET'])
 def get_pdf_page(doc_id, page_num):
@@ -4621,9 +4654,399 @@ def unload_llm():
 
     return jsonify({'success': True})
 
+
+# ============================================
+# STUDY SESSION - Collaborative Reading
+# ============================================
+
+def generate_session_code():
+    """Generate a unique 6-character session code"""
+    while True:
+        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        if code not in study_sessions:
+            return code
+
+@app.route('/study/create', methods=['POST'])
+def create_study_session():
+    """Create a new study session and upload the document"""
+    if 'document' not in request.files:
+        return jsonify({'error': 'No document provided'}), 400
+
+    file = request.files['document']
+    doc_name = request.form.get('doc_name', 'Untitled')
+    host_name = request.form.get('host_name', 'Host')
+
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+
+    # Generate session code
+    code = generate_session_code()
+
+    # Create session folder
+    session_folder = STUDY_SESSIONS_FOLDER / code
+    session_folder.mkdir(parents=True, exist_ok=True)
+
+    # Save document
+    filename = secure_filename(file.filename)
+    doc_path = session_folder / filename
+    file.save(str(doc_path))
+
+    # Create session data
+    study_sessions[code] = {
+        'code': code,
+        'doc_path': str(doc_path),
+        'doc_name': doc_name,
+        'filename': filename,
+        'host_name': host_name,
+        'host_sid': None,  # Will be set when host connects via socket
+        'participants': {},  # sid -> {name, page, is_host}
+        'shared_state': {
+            'current_page': 0,
+            'is_reading': False,
+            'word_index': 0,
+            'sync_reading': True  # If true, all participants follow the reader
+        },
+        'chat_history': [],
+        'highlights': [],  # Shared highlights
+        'created_at': datetime.now().isoformat()
+    }
+
+    return jsonify({
+        'success': True,
+        'code': code,
+        'doc_name': doc_name
+    })
+
+@app.route('/study/join/<code>')
+def join_study_session(code):
+    """Check if a session exists and get its info"""
+    code = code.upper()
+    if code not in study_sessions:
+        return jsonify({'error': 'Session not found'}), 404
+
+    session = study_sessions[code]
+    return jsonify({
+        'success': True,
+        'code': code,
+        'doc_name': session['doc_name'],
+        'host_name': session['host_name'],
+        'participant_count': len(session['participants'])
+    })
+
+@app.route('/study/document/<code>')
+def get_study_document(code):
+    """Get the study session document"""
+    code = code.upper()
+    if code not in study_sessions:
+        return jsonify({'error': 'Session not found'}), 404
+
+    session = study_sessions[code]
+    doc_path = Path(session['doc_path'])
+
+    if not doc_path.exists():
+        return jsonify({'error': 'Document not found'}), 404
+
+    return send_file(str(doc_path), as_attachment=False)
+
+@app.route('/study/document/<code>/page/<int:page_num>')
+def get_study_page_image(code, page_num):
+    """Get a page image from the study session document"""
+    code = code.upper()
+    if code not in study_sessions:
+        return jsonify({'error': 'Session not found'}), 404
+
+    session = study_sessions[code]
+    doc_path = session['doc_path']
+
+    # Render the page
+    try:
+        images = convert_from_path(doc_path, first_page=page_num+1, last_page=page_num+1, dpi=150)
+        if images:
+            img_io = io.BytesIO()
+            images[0].save(img_io, 'PNG')
+            img_io.seek(0)
+            return send_file(img_io, mimetype='image/png')
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    return jsonify({'error': 'Failed to render page'}), 500
+
+@app.route('/study/document/<code>/info')
+def get_study_document_info(code):
+    """Get document info for a study session"""
+    code = code.upper()
+    if code not in study_sessions:
+        return jsonify({'error': 'Session not found'}), 404
+
+    session = study_sessions[code]
+    doc_path = session['doc_path']
+
+    try:
+        doc = fitz.open(doc_path)
+        page_count = len(doc)
+        doc.close()
+
+        return jsonify({
+            'success': True,
+            'doc_name': session['doc_name'],
+            'filename': session['filename'],
+            'page_count': page_count,
+            'participants': [
+                {'name': p['name'], 'page': p['page'], 'is_host': p['is_host']}
+                for p in session['participants'].values()
+            ]
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/study/leave', methods=['POST'])
+def leave_study_session():
+    """Leave a study session"""
+    data = request.json
+    code = data.get('code', '').upper()
+
+    # Session cleanup is handled by socket disconnect
+    return jsonify({'success': True})
+
+@app.route('/study/end/<code>', methods=['POST'])
+def end_study_session(code):
+    """End a study session (host only)"""
+    code = code.upper()
+    if code not in study_sessions:
+        return jsonify({'error': 'Session not found'}), 404
+
+    session = study_sessions[code]
+
+    # Notify all participants
+    socketio.emit('session_ended', {'code': code}, room=code)
+
+    # Clean up session folder
+    session_folder = STUDY_SESSIONS_FOLDER / code
+    if session_folder.exists():
+        import shutil
+        shutil.rmtree(session_folder)
+
+    # Remove from memory
+    del study_sessions[code]
+
+    return jsonify({'success': True})
+
+
+# SocketIO Events for Study Sessions
+@socketio.on('connect')
+def handle_connect():
+    print(f'[StudySession] Client connected: {request.sid}')
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print(f'[StudySession] Client disconnected: {request.sid}')
+    # Remove from any study sessions
+    for code, session in list(study_sessions.items()):
+        if request.sid in session['participants']:
+            participant = session['participants'][request.sid]
+            del session['participants'][request.sid]
+
+            # Notify others
+            emit('participant_left', {
+                'name': participant['name'],
+                'participant_count': len(session['participants'])
+            }, room=code)
+
+            # If host left and no participants, clean up session
+            if participant['is_host'] and len(session['participants']) == 0:
+                session_folder = STUDY_SESSIONS_FOLDER / code
+                if session_folder.exists():
+                    import shutil
+                    shutil.rmtree(session_folder)
+                del study_sessions[code]
+
+@socketio.on('join_session')
+def handle_join_session(data):
+    """Join a study session room"""
+    code = data.get('code', '').upper()
+    name = data.get('name', 'Anonymous')
+    is_host = data.get('is_host', False)
+
+    if code not in study_sessions:
+        emit('error', {'message': 'Session not found'})
+        return
+
+    session = study_sessions[code]
+
+    # Join the SocketIO room
+    join_room(code)
+
+    # Add participant
+    session['participants'][request.sid] = {
+        'name': name,
+        'page': session['shared_state']['current_page'],
+        'is_host': is_host,
+        'sid': request.sid
+    }
+
+    if is_host:
+        session['host_sid'] = request.sid
+
+    # Notify others
+    emit('participant_joined', {
+        'name': name,
+        'is_host': is_host,
+        'participant_count': len(session['participants']),
+        'participants': [
+            {'name': p['name'], 'page': p['page'], 'is_host': p['is_host']}
+            for p in session['participants'].values()
+        ]
+    }, room=code)
+
+    # Send current state to the new participant
+    emit('session_state', {
+        'shared_state': session['shared_state'],
+        'chat_history': session['chat_history'][-50:],  # Last 50 messages
+        'highlights': session['highlights'],
+        'participants': [
+            {'name': p['name'], 'page': p['page'], 'is_host': p['is_host']}
+            for p in session['participants'].values()
+        ]
+    })
+
+@socketio.on('leave_session')
+def handle_leave_session(data):
+    """Leave a study session room"""
+    code = data.get('code', '').upper()
+
+    if code in study_sessions:
+        leave_room(code)
+        session = study_sessions[code]
+
+        if request.sid in session['participants']:
+            participant = session['participants'][request.sid]
+            del session['participants'][request.sid]
+
+            emit('participant_left', {
+                'name': participant['name'],
+                'participant_count': len(session['participants'])
+            }, room=code)
+
+@socketio.on('sync_page')
+def handle_sync_page(data):
+    """Sync page change to all participants"""
+    code = data.get('code', '').upper()
+    page = data.get('page', 0)
+
+    if code not in study_sessions:
+        return
+
+    session = study_sessions[code]
+    session['shared_state']['current_page'] = page
+
+    # Update this participant's page
+    if request.sid in session['participants']:
+        session['participants'][request.sid]['page'] = page
+
+    # Broadcast to others in the room
+    emit('page_changed', {
+        'page': page,
+        'by': session['participants'].get(request.sid, {}).get('name', 'Unknown')
+    }, room=code, include_self=False)
+
+@socketio.on('sync_reading')
+def handle_sync_reading(data):
+    """Sync reading state (playing/paused, word index)"""
+    code = data.get('code', '').upper()
+
+    if code not in study_sessions:
+        return
+
+    session = study_sessions[code]
+    session['shared_state']['is_reading'] = data.get('is_reading', False)
+    session['shared_state']['word_index'] = data.get('word_index', 0)
+
+    # Broadcast to others
+    emit('reading_sync', {
+        'is_reading': data.get('is_reading', False),
+        'word_index': data.get('word_index', 0),
+        'by': session['participants'].get(request.sid, {}).get('name', 'Unknown')
+    }, room=code, include_self=False)
+
+@socketio.on('chat_message')
+def handle_chat_message(data):
+    """Handle chat messages in study session"""
+    code = data.get('code', '').upper()
+    message = data.get('message', '')
+
+    if code not in study_sessions or not message:
+        return
+
+    session = study_sessions[code]
+    participant = session['participants'].get(request.sid, {})
+
+    chat_entry = {
+        'name': participant.get('name', 'Unknown'),
+        'message': message,
+        'timestamp': datetime.now().isoformat(),
+        'is_host': participant.get('is_host', False)
+    }
+
+    session['chat_history'].append(chat_entry)
+
+    # Broadcast to all in room
+    emit('new_chat_message', chat_entry, room=code)
+
+@socketio.on('add_highlight')
+def handle_add_highlight(data):
+    """Add a shared highlight"""
+    code = data.get('code', '').upper()
+
+    if code not in study_sessions:
+        return
+
+    session = study_sessions[code]
+    participant = session['participants'].get(request.sid, {})
+
+    highlight = {
+        'page': data.get('page', 0),
+        'text': data.get('text', ''),
+        'position': data.get('position', {}),
+        'color': data.get('color', '#FFE066'),
+        'by': participant.get('name', 'Unknown'),
+        'timestamp': datetime.now().isoformat()
+    }
+
+    session['highlights'].append(highlight)
+
+    # Broadcast to all
+    emit('highlight_added', highlight, room=code)
+
+@socketio.on('clara_qa')
+def handle_clara_qa(data):
+    """Share Clara Q&A with study session"""
+    code = data.get('code', '').upper()
+    question = data.get('question', '')
+    answer = data.get('answer', '')
+
+    if code not in study_sessions:
+        return
+
+    session = study_sessions[code]
+    participant = session['participants'].get(request.sid, {})
+
+    qa_entry = {
+        'type': 'clara_qa',
+        'name': participant.get('name', 'Unknown'),
+        'question': question,
+        'answer': answer,
+        'timestamp': datetime.now().isoformat()
+    }
+
+    session['chat_history'].append(qa_entry)
+
+    # Broadcast to all
+    emit('new_chat_message', qa_entry, room=code)
+
+
 def start_server():
-    """Start Flask server in a separate thread"""
-    app.run(host='127.0.0.1', port=5555, debug=False, threaded=True)
+    """Start Flask server with SocketIO"""
+    socketio.run(app, host='127.0.0.1', port=5555, debug=False, allow_unsafe_werkzeug=True)
 
 def main():
     """Main entry point"""

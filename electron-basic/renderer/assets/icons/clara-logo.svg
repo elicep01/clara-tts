@@ -1,0 +1,80 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background gradient: Blue to Purple -->
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#5B9FEF;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#B794F6;stop-opacity:1" />
+    </linearGradient>
+
+    <linearGradient id="docGradient" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFFFFF;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#F0F4F8;stop-opacity:0.95" />
+    </linearGradient>
+
+    <!-- Shadow filter -->
+    <filter id="softShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="20"/>
+      <feOffset dx="0" dy="10" result="offsetblur"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.3"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect width="1024" height="1024" rx="225" ry="225" fill="url(#bgGradient)"/>
+
+  <!-- Document/paper icon (white with subtle gradient) -->
+  <g filter="url(#softShadow)">
+    <rect x="280" y="260" width="370" height="480" rx="24" ry="24"
+          fill="url(#docGradient)"
+          stroke="rgba(255,255,255,0.3)"
+          stroke-width="2"/>
+
+    <!-- Document lines -->
+    <rect x="360" y="370" width="210" height="12" rx="6" fill="rgba(200,210,230,0.4)"/>
+    <rect x="360" y="430" width="210" height="12" rx="6" fill="rgba(200,210,230,0.4)"/>
+    <rect x="360" y="490" width="170" height="12" rx="6" fill="rgba(200,210,230,0.4)"/>
+    <rect x="360" y="550" width="190" height="12" rx="6" fill="rgba(200,210,230,0.4)"/>
+  </g>
+
+  <!-- Sound waves (right side) -->
+  <g opacity="0.95">
+    <!-- Wave 1 (innermost) -->
+    <path d="M 720 450 Q 750 450, 750 480 Q 750 510, 720 510"
+          stroke="white"
+          stroke-width="20"
+          stroke-linecap="round"
+          fill="none"/>
+
+    <!-- Wave 2 (middle) -->
+    <path d="M 740 420 Q 790 420, 790 480 Q 790 540, 740 540"
+          stroke="white"
+          stroke-width="20"
+          stroke-linecap="round"
+          fill="none"/>
+
+    <!-- Wave 3 (outermost) -->
+    <path d="M 760 390 Q 830 390, 830 480 Q 830 570, 760 570"
+          stroke="white"
+          stroke-width="20"
+          stroke-linecap="round"
+          fill="none"/>
+  </g>
+
+  <!-- Sparkle (top right) -->
+  <g transform="translate(700, 230)">
+    <!-- Main star -->
+    <path d="M 0,-25 L 5,-5 L 25,0 L 5,5 L 0,25 L -5,5 L -25,0 L -5,-5 Z"
+          fill="#FFD700"
+          opacity="0.9"/>
+    <!-- Small star -->
+    <path d="M 35,-10 L 37,-5 L 42,-3 L 37,-1 L 35,4 L 33,-1 L 28,-3 L 33,-5 Z"
+          fill="white"
+          opacity="0.85"/>
+  </g>
+</svg>
