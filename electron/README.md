@@ -18,9 +18,9 @@ Your Reading Companion, now as a native desktop application!
 ### First Time Setup
 
 ```bash
-cd /Users/elicepriyadarshini/Desktop/ClaraStuff/clara_2/electron-basic
+cd electron
 npm install
-npm run build
+npm start
 ```
 
 ### Running the App
@@ -111,7 +111,7 @@ npm run build
 ### Project Structure
 
 ```
-electron-basic/
+electron/
 ├── src/
 │   ├── main/          # Main process (Node.js backend)
 │   │   ├── index.ts   # Entry point
@@ -126,6 +126,9 @@ electron-basic/
 │   ├── clara.html
 │   ├── electron-adapter.js
 │   └── static/
+├── scripts/           # Python scripts for PDF processing
+│   ├── extract_pdf_text.py
+│   └── extract_pdf_words.py
 └── dist/              # Compiled TypeScript
 ```
 
@@ -143,10 +146,16 @@ electron-basic/
 - **Electron** - Desktop framework
 - **TypeScript** - Type-safe JavaScript
 - **better-sqlite3** - Fast SQLite database
-- **pdf-parse** - PDF text extraction
-- **canvas** - PDF rendering
+- **PDF.js** - PDF rendering
+- **PyMuPDF** - Accurate word extraction (via Python scripts)
 - **edge-tts** - Microsoft Edge TTS engine
 - **Gemini AI** - Google's AI for Q&A
+
+## Prerequisites
+
+- **Node.js** (v18+)
+- **Python 3** with PyMuPDF: `pip install pymupdf`
+- **edge-tts**: `pip install edge-tts`
 
 ## Building for Distribution
 
