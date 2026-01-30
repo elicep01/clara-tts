@@ -92,6 +92,41 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
         return { success: true };
     });
 
+    ipc.handle('library:moveFolder', async (_event: any, { folder_id, parent_id }: any) => {
+        const db = getDatabase();
+        // Prevent moving folder into itself or its descendants
+        if (folder_id === parent_id) {
+            return { success: false, error: 'Cannot move folder into itself' };
+        }
+        db.prepare('UPDATE folders SET parent_id = ? WHERE id = ?').run(parent_id || null, folder_id);
+        return { success: true };
+    });
+
+    ipc.handle('library:deleteMultiple', async (_event: any, { doc_ids, folder_ids }: any) => {
+        const db = getDatabase();
+
+        // Delete documents
+        if (doc_ids && doc_ids.length > 0) {
+            for (const doc_id of doc_ids) {
+                const doc = db.prepare('SELECT file_path FROM documents WHERE id = ?').get(doc_id) as any;
+                if (doc && fs.existsSync(doc.file_path)) {
+                    fs.unlinkSync(doc.file_path);
+                }
+                db.prepare('DELETE FROM documents WHERE id = ?').run(doc_id);
+            }
+        }
+
+        // Delete folders (move their contents to root first)
+        if (folder_ids && folder_ids.length > 0) {
+            for (const folder_id of folder_ids) {
+                db.prepare('UPDATE documents SET folder_id = NULL WHERE folder_id = ?').run(folder_id);
+                db.prepare('DELETE FROM folders WHERE id = ?').run(folder_id);
+            }
+        }
+
+        return { success: true, deleted_docs: doc_ids?.length || 0, deleted_folders: folder_ids?.length || 0 };
+    });
+
     // ============================================
     // DOCUMENT VIEWER
     // ============================================

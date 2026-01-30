@@ -35,6 +35,94 @@ export class LibraryManager {
                 this.handleFile(e.dataTransfer.files[0]);
             }
         });
+
+        // External file drop on document grid
+        const grid = document.getElementById('document-grid');
+        if (grid) {
+            grid.addEventListener('dragover', (e) => {
+                // Only handle external files (not internal drags)
+                if (e.dataTransfer.types.includes('Files')) {
+                    e.preventDefault();
+                    grid.classList.add('external-drop-target');
+                }
+            });
+
+            grid.addEventListener('dragleave', (e) => {
+                if (!grid.contains(e.relatedTarget)) {
+                    grid.classList.remove('external-drop-target');
+                }
+            });
+
+            grid.addEventListener('drop', async (e) => {
+                grid.classList.remove('external-drop-target');
+                // Handle external file drops
+                if (e.dataTransfer.files.length > 0) {
+                    e.preventDefault();
+                    const pdfFiles = Array.from(e.dataTransfer.files).filter(
+                        f => f.name.toLowerCase().endsWith('.pdf')
+                    );
+
+                    if (pdfFiles.length === 0) {
+                        this.clara.ui.showToast('Please drop PDF files only', true);
+                        return;
+                    }
+
+                    // For multiple files, upload all but only open the first
+                    if (pdfFiles.length === 1) {
+                        await this.handleFile(pdfFiles[0]);
+                    } else {
+                        this.clara.ui.showLoading(`Uploading ${pdfFiles.length} documents...`);
+                        for (const file of pdfFiles) {
+                            await this.uploadFileOnly(file);
+                        }
+                        await this.load();
+                        this.clara.ui.hideLoading();
+                        this.clara.ui.showToast(`Added ${pdfFiles.length} documents`);
+                    }
+                }
+            });
+        }
+
+        // Selection toolbar actions
+        const deleteSelectedBtn = document.getElementById('btn-delete-selected');
+        if (deleteSelectedBtn) {
+            deleteSelectedBtn.addEventListener('click', () => this.deleteSelected());
+        }
+
+        const cancelSelectionBtn = document.getElementById('btn-cancel-selection');
+        if (cancelSelectionBtn) {
+            cancelSelectionBtn.addEventListener('click', () => this.clearSelection());
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            // Only handle when in library view
+            if (this.state.currentView !== 'library') return;
+
+            // Escape to clear selection
+            if (e.key === 'Escape' && this.state.selectedItems.length > 0) {
+                this.clearSelection();
+            }
+
+            // Delete/Backspace to delete selected
+            if ((e.key === 'Delete' || e.key === 'Backspace') && this.state.selectedItems.length > 0) {
+                e.preventDefault();
+                this.deleteSelected();
+            }
+
+            // Ctrl/Cmd + A to select all
+            if ((e.ctrlKey || e.metaKey) && e.key === 'a' && this.state.currentView === 'library') {
+                e.preventDefault();
+                this.selectAll();
+            }
+        });
+
+        // Click on empty space to clear selection
+        document.getElementById('library-view').addEventListener('click', (e) => {
+            if (e.target.id === 'document-grid' || e.target.classList.contains('library-main')) {
+                this.clearSelection();
+            }
+        });
     }
 
     async load() {
@@ -222,7 +310,16 @@ export class LibraryManager {
         card.dataset.dropTarget = 'true';
         card.draggable = true;
 
+        // Check if selected
+        const isSelected = this.state.selectedItems.some(
+            item => item.id === folder.id && item.type === 'folder'
+        );
+        if (isSelected) card.classList.add('selected');
+
         card.innerHTML = `
+            <div class="select-checkbox">
+                <input type="checkbox" ${isSelected ? 'checked' : ''}>
+            </div>
             <div class="doc-icon folder">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
@@ -232,8 +329,15 @@ export class LibraryManager {
             <div class="doc-meta">Folder</div>
         `;
 
-        card.addEventListener('click', () => this.selectFolder(folder.id));
+        card.addEventListener('click', (e) => this.handleCardClick(e, folder.id, 'folder'));
         card.addEventListener('contextmenu', (e) => this.clara.contextMenu.show(e, folder.id, 'folder'));
+
+        // Checkbox click
+        const checkbox = card.querySelector('input[type="checkbox"]');
+        checkbox.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.toggleSelection(folder.id, 'folder');
+        });
 
         return card;
     }
@@ -244,10 +348,19 @@ export class LibraryManager {
         card.dataset.docId = doc.id;
         card.draggable = true;
 
+        // Check if selected
+        const isSelected = this.state.selectedItems.some(
+            item => item.id === doc.id && item.type === 'document'
+        );
+        if (isSelected) card.classList.add('selected');
+
         const progress = doc.progress || 0;
         const ext = doc.original_filename?.split('.').pop()?.toUpperCase() || 'DOC';
 
         card.innerHTML = `
+            <div class="select-checkbox">
+                <input type="checkbox" ${isSelected ? 'checked' : ''}>
+            </div>
             <div class="doc-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -263,10 +376,154 @@ export class LibraryManager {
             ` : ''}
         `;
 
-        card.addEventListener('click', () => this.clara.viewer.open(doc.id));
+        card.addEventListener('click', (e) => this.handleCardClick(e, doc.id, 'document'));
         card.addEventListener('contextmenu', (e) => this.clara.contextMenu.show(e, doc.id, 'document'));
 
+        // Checkbox click
+        const checkbox = card.querySelector('input[type="checkbox"]');
+        checkbox.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.toggleSelection(doc.id, 'document');
+        });
+
         return card;
+    }
+
+    // Handle card click with multi-select support
+    handleCardClick(e, id, type) {
+        // If Ctrl/Cmd or Shift is held, toggle selection
+        if (e.ctrlKey || e.metaKey || e.shiftKey) {
+            e.preventDefault();
+            this.toggleSelection(id, type);
+            return;
+        }
+
+        // If there are selected items and clicking a non-selected item, clear and act
+        if (this.state.selectedItems.length > 0) {
+            const isSelected = this.state.selectedItems.some(
+                item => item.id === id && item.type === type
+            );
+            if (!isSelected) {
+                this.clearSelection();
+            }
+        }
+
+        // Normal behavior
+        if (type === 'folder') {
+            this.selectFolder(id);
+        } else {
+            this.clara.viewer.open(id);
+        }
+    }
+
+    // Toggle item selection
+    toggleSelection(id, type) {
+        const index = this.state.selectedItems.findIndex(
+            item => item.id === id && item.type === type
+        );
+
+        if (index > -1) {
+            // Remove from selection
+            this.state.selectedItems.splice(index, 1);
+        } else {
+            // Add to selection
+            this.state.selectedItems.push({ id, type });
+        }
+
+        this.updateSelectionUI();
+    }
+
+    // Clear all selections
+    clearSelection() {
+        this.state.selectedItems = [];
+        this.updateSelectionUI();
+    }
+
+    // Select all items in current view
+    selectAll() {
+        this.state.selectedItems = [];
+
+        // Get current folder's documents and subfolders
+        const docs = this.state.currentFolderId
+            ? this.state.documents.filter(d => d.folder_id === this.state.currentFolderId)
+            : this.state.documents;
+
+        const subfolders = this.state.folders.filter(f => {
+            if (this.state.currentFolderId) {
+                return f.parent_id === this.state.currentFolderId;
+            }
+            return !f.parent_id;
+        });
+
+        subfolders.forEach(f => this.state.selectedItems.push({ id: f.id, type: 'folder' }));
+        docs.forEach(d => this.state.selectedItems.push({ id: d.id, type: 'document' }));
+
+        this.updateSelectionUI();
+    }
+
+    // Update UI to reflect selection state
+    updateSelectionUI() {
+        const count = this.state.selectedItems.length;
+        const toolbar = document.getElementById('selection-toolbar');
+        const countSpan = document.getElementById('selection-count');
+
+        // Update toolbar visibility
+        if (toolbar) {
+            if (count > 0) {
+                toolbar.classList.add('visible');
+                if (countSpan) countSpan.textContent = count;
+            } else {
+                toolbar.classList.remove('visible');
+            }
+        }
+
+        // Update card selection state
+        document.querySelectorAll('.document-card').forEach(card => {
+            const docId = card.dataset.docId;
+            const folderId = card.dataset.folderId;
+
+            const isSelected = this.state.selectedItems.some(item => {
+                if (docId && item.type === 'document') return item.id === docId;
+                if (folderId && item.type === 'folder') return item.id === folderId;
+                return false;
+            });
+
+            if (isSelected) {
+                card.classList.add('selected');
+                const cb = card.querySelector('input[type="checkbox"]');
+                if (cb) cb.checked = true;
+            } else {
+                card.classList.remove('selected');
+                const cb = card.querySelector('input[type="checkbox"]');
+                if (cb) cb.checked = false;
+            }
+        });
+    }
+
+    // Delete selected items
+    async deleteSelected() {
+        const count = this.state.selectedItems.length;
+        if (count === 0) return;
+
+        const confirmed = confirm(`Delete ${count} item${count > 1 ? 's' : ''}? This cannot be undone.`);
+        if (!confirmed) return;
+
+        const docIds = this.state.selectedItems.filter(i => i.type === 'document').map(i => i.id);
+        const folderIds = this.state.selectedItems.filter(i => i.type === 'folder').map(i => i.id);
+
+        try {
+            await fetch('/library/delete-multiple', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ doc_ids: docIds, folder_ids: folderIds })
+            });
+
+            this.clearSelection();
+            await this.load();
+            this.clara.ui.showToast(`Deleted ${count} item${count > 1 ? 's' : ''}`);
+        } catch (err) {
+            this.clara.ui.showToast('Delete failed: ' + err.message, true);
+        }
     }
 
     async handleFile(file) {
@@ -303,6 +560,33 @@ export class LibraryManager {
         } catch (err) {
             this.clara.ui.showToast('Upload failed: ' + err.message, true);
             this.clara.ui.hideLoading();
+        }
+    }
+
+    // Upload file without opening viewer (for batch uploads)
+    async uploadFileOnly(file) {
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        if (this.state.currentFolderId) {
+            formData.append('folder_id', this.state.currentFolderId);
+        }
+
+        try {
+            const res = await fetch('/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await res.json();
+            if (data.error) {
+                console.error('Upload failed:', data.error);
+            }
+            return data;
+        } catch (err) {
+            console.error('Upload failed:', err);
         }
     }
 

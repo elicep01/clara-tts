@@ -43,6 +43,10 @@ export const createInitialState = () => ({
     selectedItem: null,
     selectedItemType: null,
 
+    // Multi-select
+    selectedItems: [],  // Array of { id, type: 'document' | 'folder' }
+    isMultiSelectMode: false,
+
     // Notes
     notes: [],
     currentNote: null,

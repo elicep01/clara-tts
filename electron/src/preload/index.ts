@@ -20,7 +20,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
         deleteFolder: (folder_id: string) =>
             ipcRenderer.invoke('library:deleteFolder', { folder_id }),
         renameFolder: (folder_id: string, new_name: string) =>
-            ipcRenderer.invoke('library:renameFolder', { folder_id, new_name })
+            ipcRenderer.invoke('library:renameFolder', { folder_id, new_name }),
+        moveFolder: (folder_id: string, parent_id?: string) =>
+            ipcRenderer.invoke('library:moveFolder', { folder_id, parent_id }),
+        deleteMultiple: (doc_ids: string[], folder_ids: string[]) =>
+            ipcRenderer.invoke('library:deleteMultiple', { doc_ids, folder_ids })
     },
 
     // Document
@@ -96,6 +100,8 @@ declare global {
                 moveDocument: (doc_id: string, folder_id?: string) => Promise<any>;
                 deleteFolder: (folder_id: string) => Promise<any>;
                 renameFolder: (folder_id: string, new_name: string) => Promise<any>;
+                moveFolder: (folder_id: string, parent_id?: string) => Promise<any>;
+                deleteMultiple: (doc_ids: string[], folder_ids: string[]) => Promise<any>;
             };
             document: {
                 getInfo: (doc_id: string) => Promise<any>;

@@ -48,7 +48,8 @@
                 return createResponse({ documents: mappedDocs, folders });
             }
 
-            if (urlStr === '/folders' && method === 'POST') {
+            // Create folder - support both endpoints
+            if ((urlStr === '/folders' || urlStr === '/library/folder') && method === 'POST') {
                 const result = await window.electronAPI.library.createFolder(body?.name, body?.parent_id);
                 return createResponse(result);
             }
@@ -259,13 +260,26 @@
             // Library document operations
             const libDocMatch = urlStr.match(/\/library\/document\/([^\/]+)/);
             if (libDocMatch) {
-                const doc_id = libDocMatch[1];
+                const doc_id = libDocMatch[1].split('/')[0]; // Handle /move and /rename suffixes
 
                 if (method === 'DELETE') {
                     const result = await window.electronAPI.library.deleteDocument(doc_id);
                     return createResponse(result);
                 }
 
+                // Handle /rename endpoint explicitly
+                if (method === 'PUT' && urlStr.includes('/rename')) {
+                    const result = await window.electronAPI.library.renameDocument(doc_id, body.name);
+                    return createResponse(result);
+                }
+
+                // Handle /move endpoint explicitly
+                if (method === 'PUT' && urlStr.includes('/move')) {
+                    const result = await window.electronAPI.library.moveDocument(doc_id, body.folder_id);
+                    return createResponse(result);
+                }
+
+                // Fallback for body-based detection
                 if (method === 'PUT' && body.name) {
                     const result = await window.electronAPI.library.renameDocument(doc_id, body.name);
                     return createResponse(result);
@@ -280,17 +294,33 @@
             // Library folder operations
             const libFolderMatch = urlStr.match(/\/library\/folder\/([^\/]+)/);
             if (libFolderMatch) {
-                const folder_id = libFolderMatch[1];
+                const folder_id = libFolderMatch[1].split('/')[0]; // Handle /move suffix
 
                 if (method === 'DELETE') {
                     const result = await window.electronAPI.library.deleteFolder(folder_id);
                     return createResponse(result);
                 }
 
+                // Handle /move endpoint explicitly
+                if (method === 'PUT' && urlStr.includes('/move')) {
+                    const result = await window.electronAPI.library.moveFolder(folder_id, body.parent_id);
+                    return createResponse(result);
+                }
+
+                // Rename folder
                 if (method === 'PUT' && body.name) {
                     const result = await window.electronAPI.library.renameFolder(folder_id, body.name);
                     return createResponse(result);
                 }
+            }
+
+            // Batch delete multiple items
+            if (urlStr === '/library/delete-multiple' && method === 'POST') {
+                const result = await window.electronAPI.library.deleteMultiple(
+                    body.doc_ids || [],
+                    body.folder_ids || []
+                );
+                return createResponse(result);
             }
 
             // TTS - Get available voices
