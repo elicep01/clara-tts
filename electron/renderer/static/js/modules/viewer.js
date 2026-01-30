@@ -130,29 +130,38 @@ export class ViewerManager {
             document.getElementById('page-content').style.transform = 'scale(0.75)';
 
             this.updatePageIndicator();
-            await this.renderPageThumbnails();
+
+            // Switch to viewer IMMEDIATELY so user can see the UI
+            this.clara.navigation.switchView('viewer');
+            this.clara.ui.hideLoading();
+
+            // Load main page FIRST (most important - user can start reading)
             await this.loadPage(startPage);
 
+            // Load thumbnails in BACKGROUND (don't block UI)
+            this.renderPageThumbnails().catch(err => console.error('[Viewer] Thumbnail error:', err));
+
             if (startPage > 0) {
-                document.querySelectorAll('.page-thumb').forEach(el => {
-                    el.classList.remove('active');
-                    if (parseInt(el.dataset.page) === startPage) {
-                        el.classList.add('active');
-                    }
-                });
+                // Use setTimeout to not block - thumbnails might not be ready yet
+                setTimeout(() => {
+                    document.querySelectorAll('.page-thumb').forEach(el => {
+                        el.classList.remove('active');
+                        if (parseInt(el.dataset.page) === startPage) {
+                            el.classList.add('active');
+                        }
+                    });
+                }, 100);
             }
 
             this.updateReadButtonText();
-            await this.clara.notes.load();
 
-            // Load TOC if available
+            // Load notes and TOC in BACKGROUND (don't block UI)
+            this.clara.notes.load().catch(err => console.error('[Viewer] Notes error:', err));
+
             if (this.clara.toc) {
                 this.clara.toc.reset();
-                await this.clara.toc.load(docId);
+                this.clara.toc.load(docId).catch(err => console.error('[Viewer] TOC error:', err));
             }
-
-            this.clara.navigation.switchView('viewer');
-            this.clara.ui.hideLoading();
 
         } catch (err) {
             this.clara.ui.showToast('Failed to open document: ' + err.message, true);
@@ -359,18 +368,23 @@ export class ViewerManager {
         content.innerHTML = '';
         content.appendChild(container);
 
-        // Load initial pages immediately
-        for (let i = initialStart; i <= initialEnd; i++) {
-            await this.loadSinglePageLazy(i);
+        // Load current page FIRST, then others in parallel
+        await this.loadSinglePageLazy(startPage);
+
+        // Scroll to start page IMMEDIATELY after first page loads
+        const targetPage = document.getElementById(`page-${startPage}`);
+        if (targetPage) {
+            targetPage.scrollIntoView({ behavior: 'auto' });
         }
 
-        // Scroll to start page
-        setTimeout(() => {
-            const targetPage = document.getElementById(`page-${startPage}`);
-            if (targetPage) {
-                targetPage.scrollIntoView({ behavior: 'auto' });
+        // Load surrounding pages in BACKGROUND (don't block)
+        const surroundingPages = [];
+        for (let i = initialStart; i <= initialEnd; i++) {
+            if (i !== startPage) {
+                surroundingPages.push(this.loadSinglePageLazy(i));
             }
-        }, 100);
+        }
+        Promise.all(surroundingPages).catch(err => console.error('[Lazy Load] Error:', err));
 
         // Set up Intersection Observer for lazy loading remaining pages
         this.setupLazyPageLoading();
@@ -424,37 +438,38 @@ export class ViewerManager {
         pageWrapper.dataset.loaded = 'loading';
 
         if (this.state.isPdf) {
-            // Replace placeholder with actual image
-            const img = new Image();
-            img.src = `/document/${this.state.viewerDocId}/page/${i}`;
-            img.dataset.pageNum = i;
+            // Return a promise that resolves when image loads
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.src = `/document/${this.state.viewerDocId}/page/${i}`;
+                img.dataset.pageNum = i;
 
-            // Clear placeholder
-            pageWrapper.innerHTML = '';
-            pageWrapper.appendChild(img);
+                // Clear placeholder
+                pageWrapper.innerHTML = '';
+                pageWrapper.appendChild(img);
 
-                // Load word overlay after image loads
-            img.onload = async () => {
-                pageWrapper.dataset.loaded = 'true';
-                await this.createContinuousPageWordOverlay(i, pageWrapper);
-                console.log(`[Lazy Load] Page ${i} loaded successfully`);
-            };
+                img.onload = () => {
+                    pageWrapper.dataset.loaded = 'true';
+                    // Load word overlay in background (don't block)
+                    this.createContinuousPageWordOverlay(i, pageWrapper)
+                        .catch(err => console.error(`[Viewer] Word overlay error for page ${i}:`, err));
+                    console.log(`[Lazy Load] Page ${i} loaded`);
+                    resolve();
+                };
 
-            // Handle image loading errors
-            img.onerror = async (e) => {
-                console.error(`[Viewer] Failed to load page ${i} image`);
-                pageWrapper.dataset.loaded = 'error';
-
-                // Show error placeholder
-                pageWrapper.innerHTML = `
-                    <div class="text-content error-content" style="min-height: 1100px; display: flex; align-items: center; justify-content: center; background: #ffe6e6;">
-                        <div style="text-align: center; color: #d00;">
-                            <h3>Failed to Render Page ${i + 1}</h3>
-                            <p>Image could not be loaded</p>
+                img.onerror = () => {
+                    console.error(`[Viewer] Failed to load page ${i}`);
+                    pageWrapper.dataset.loaded = 'error';
+                    pageWrapper.innerHTML = `
+                        <div style="min-height: 800px; display: flex; align-items: center; justify-content: center; background: #ffe6e6;">
+                            <div style="text-align: center; color: #d00;">
+                                <h3>Page ${i + 1} Failed</h3>
+                            </div>
                         </div>
-                    </div>
-                `;
-            };
+                    `;
+                    resolve(); // Resolve anyway to not block
+                };
+            });
         } else {
             // Text document
             try {
