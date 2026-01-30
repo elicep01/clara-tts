@@ -234,7 +234,38 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
     // ============================================
 
     ipc.handle('ai:ask', async (_event: any, { question, page_text, page_num, doc_id }: any) => {
-        const result = await askGemini(question, page_text || '', page_num, doc_id);
+        // Get document metadata for context
+        let docTitle = '';
+        let docFilename = '';
+        let firstPageText = '';
+
+        if (doc_id) {
+            try {
+                const db = getDatabase();
+                const doc = db.prepare('SELECT original_filename, title FROM documents WHERE id = ?').get(doc_id) as any;
+                if (doc) {
+                    docFilename = doc.original_filename || '';
+                    docTitle = doc.title || docFilename.replace(/\.pdf$/i, '');
+                }
+
+                // For "book about" questions, get first page text if not on page 1
+                const questionLower = question.toLowerCase();
+                const isBookQuestion = ['this book', 'the book', 'document about', 'what is it about',
+                    'what is this about', 'summarize the book', 'summarize this book'].some(p => questionLower.includes(p));
+
+                if (isBookQuestion && page_num !== 1) {
+                    // Get first page text for better context
+                    const filePath = path.join(getDocumentsFolder(), doc_id, 'document.pdf');
+                    if (fs.existsSync(filePath)) {
+                        firstPageText = await extractPDFText(filePath, 1);
+                    }
+                }
+            } catch (err) {
+                console.error('[AI] Error getting doc metadata:', err);
+            }
+        }
+
+        const result = await askGemini(question, page_text || '', page_num, doc_id, docTitle, firstPageText);
         return result;
     });
 

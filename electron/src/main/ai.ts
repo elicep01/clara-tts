@@ -15,24 +15,40 @@ function getGeminiKey(): string {
 const GEMINI_API_KEY = getGeminiKey();
 const GEMINI_MODEL = 'gemini-2.5-flash';
 
-export async function askGemini(question: string, pageText: string, pageNum?: number, docId?: string): Promise<any> {
-    // Detect if question is page-specific
+export async function askGemini(question: string, pageText: string, pageNum?: number, docId?: string, docTitle?: string, firstPageText?: string): Promise<any> {
+    // Detect if question is page-specific or book-level
     const questionLower = question.toLowerCase();
     const isPageSpecific = ['this page', 'current page', 'this chapter', 'current chapter',
         'summarize this', 'summarize the page', 'what is on this page',
         'what does this page say', 'explain this page', 'what is this page about']
         .some(phrase => questionLower.includes(phrase));
 
+    const isBookQuestion = ['this book', 'the book', 'document about', 'what is it about',
+        'what is this about', 'summarize the book', 'summarize this book']
+        .some(phrase => questionLower.includes(phrase));
+
     // Build context
     let context = '';
-    if (pageText) {
-        context = isPageSpecific
-            ? `Current page content:\n${pageText.substring(0, 2000)}`
-            : `Document content:\n${pageText.substring(0, 2000)}`;
+
+    // Add document title if available
+    if (docTitle) {
+        context += `Document: "${docTitle}"\n\n`;
+    }
+
+    // For book-level questions, include first page for better context
+    if (isBookQuestion && firstPageText) {
+        context += `Opening content (Page 1):\n${firstPageText.substring(0, 3000)}\n\n`;
+        if (pageText && pageNum && pageNum > 1) {
+            context += `Current page (${pageNum}) content:\n${pageText.substring(0, 1500)}`;
+        }
+    } else if (pageText) {
+        context += isPageSpecific
+            ? `Current page content:\n${pageText.substring(0, 4000)}`
+            : `Document content:\n${pageText.substring(0, 4000)}`;
     }
 
     const prompt = context
-        ? `${context}\n\nQuestion: ${question}\n\nProvide a concise, clear answer based on the context above.`
+        ? `${context}\n\nQuestion: ${question}\n\nProvide a concise, helpful answer based on the document context above. If the context doesn't contain enough information to fully answer, say so and provide what you can infer.`
         : question;
 
     try {
