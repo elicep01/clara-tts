@@ -32,7 +32,10 @@ if __name__ == "__main__":
         sys.exit(1)
 
     pdf_path = sys.argv[1]
-    page_num = int(sys.argv[2])
+    # Page numbers from frontend are 1-indexed, convert to 0-indexed for PyMuPDF
+    page_num = int(sys.argv[2]) - 1
+    if page_num < 0:
+        page_num = 0
 
     result = extract_text(pdf_path, page_num)
     print(json.dumps(result))

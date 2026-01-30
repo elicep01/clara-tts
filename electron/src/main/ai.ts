@@ -16,15 +16,27 @@ const GEMINI_API_KEY = getGeminiKey();
 const GEMINI_MODEL = 'gemini-2.5-flash';
 
 export async function askGemini(question: string, pageText: string, pageNum?: number, docId?: string, docTitle?: string, firstPageText?: string): Promise<any> {
-    // Build context - ALWAYS include current document and page info
+    // CRITICAL: Check if we have actual page content - refuse to answer if not
+    if (!pageText || pageText.trim().length < 50) {
+        console.error('[Gemini] No page content available - refusing to hallucinate');
+        return {
+            answer: "I couldn't extract text from this page. Please make sure you have a document open and try again.",
+            context_used: 0,
+            error: 'no_content'
+        };
+    }
+
+    console.log(`[Gemini] Got ${pageText.length} chars of page text, doc: "${docTitle}", page: ${pageNum}`);
+
+    // Build context with ACTUAL page content
     let context = '';
 
-    // Always add document info
+    // Add document info
     if (docTitle) {
-        context += `You are helping a user read: "${docTitle}"\n`;
+        context += `Document: "${docTitle}"\n`;
     }
     if (pageNum) {
-        context += `User is currently on page ${pageNum}.\n`;
+        context += `Page: ${pageNum}\n`;
     }
     context += '\n';
 
@@ -35,18 +47,14 @@ export async function askGemini(question: string, pageText: string, pageNum?: nu
         .some(phrase => questionLower.includes(phrase));
 
     // For book-level questions, include first page for better context
-    if (isBookQuestion && firstPageText) {
+    if (isBookQuestion && firstPageText && firstPageText.trim().length > 50) {
         context += `Opening content (Page 1):\n${firstPageText.substring(0, 3000)}\n\n`;
     }
 
-    // Always include current page content
-    if (pageText) {
-        context += `Current page content:\n${pageText.substring(0, 4000)}`;
-    }
+    // ALWAYS include current page content
+    context += `Current page content:\n${pageText.substring(0, 4000)}`;
 
-    const prompt = context
-        ? `${context}\n\nUser's question: ${question}\n\nProvide a concise, helpful answer. The user is reading this document right now, so answer in context of their reading. If the answer isn't in the visible page content, say so but try to help based on what you can see.`
-        : question;
+    const prompt = `${context}\n\nUser's question: ${question}\n\nIMPORTANT: Answer ONLY based on the document content above. Do NOT make up or guess information. If the answer is not in the text, say "I don't see that information on this page."`;
 
     try {
         const response = await callGeminiAPI(prompt);

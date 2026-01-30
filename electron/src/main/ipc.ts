@@ -234,43 +234,63 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
     // ============================================
 
     ipc.handle('ai:ask', async (_event: any, { question, page_text, page_num, doc_id }: any) => {
-        // ALWAYS extract fresh text from PDF - don't trust frontend cache or database
+        console.log(`[AI] Question received: "${question.substring(0, 50)}...", doc_id: ${doc_id}, page: ${page_num}`);
+
+        // ALWAYS extract fresh text from PDF - don't trust frontend cache
         let docTitle = '';
         let actualPageText = '';
         let firstPageText = '';
 
-        if (doc_id) {
-            try {
-                const db = getDatabase();
-                const doc = db.prepare('SELECT original_filename FROM documents WHERE id = ?').get(doc_id) as any;
-                const filePath = path.join(getDocumentsFolder(), doc_id, 'document.pdf');
-
-                if (doc && fs.existsSync(filePath)) {
-                    // Use filename as title (more reliable)
-                    docTitle = doc.original_filename?.replace(/\.pdf$/i, '') || '';
-
-                    // ALWAYS extract fresh text from the actual PDF file
-                    const pageToExtract = page_num || 1;
-                    console.log(`[AI] Extracting text from "${doc.original_filename}", page ${pageToExtract}`);
-                    actualPageText = await extractPDFText(filePath, pageToExtract);
-
-                    // For "book about" questions, also get first page
-                    const questionLower = question.toLowerCase();
-                    const isBookQuestion = ['this book', 'the book', 'document about', 'what is it about',
-                        'what is this about', 'summarize the book', 'summarize this book', 'book about'].some(p => questionLower.includes(p));
-
-                    if (isBookQuestion && pageToExtract !== 1) {
-                        firstPageText = await extractPDFText(filePath, 1);
-                    }
-                } else {
-                    console.error('[AI] Document not found:', doc_id, 'path:', filePath);
-                }
-            } catch (err) {
-                console.error('[AI] Error extracting PDF text:', err);
-            }
+        if (!doc_id) {
+            console.error('[AI] No doc_id provided!');
+            return { answer: 'Please open a document first before asking questions.', error: 'no_document' };
         }
 
-        console.log(`[AI] Context: "${docTitle}", page ${page_num}, text length: ${actualPageText.length}`);
+        try {
+            const db = getDatabase();
+            const doc = db.prepare('SELECT original_filename FROM documents WHERE id = ?').get(doc_id) as any;
+            const filePath = path.join(getDocumentsFolder(), doc_id, 'document.pdf');
+
+            console.log(`[AI] Looking for file at: ${filePath}`);
+
+            if (!doc) {
+                console.error('[AI] Document not in database:', doc_id);
+                return { answer: 'Document not found in library. Please re-upload.', error: 'not_in_db' };
+            }
+
+            if (!fs.existsSync(filePath)) {
+                console.error('[AI] PDF file missing:', filePath);
+                return { answer: 'PDF file not found. Please re-upload the document.', error: 'file_missing' };
+            }
+
+            // Use filename as title
+            docTitle = doc.original_filename?.replace(/\.pdf$/i, '') || 'Unknown Document';
+
+            // ALWAYS extract fresh text from the actual PDF file
+            const pageToExtract = page_num || 1;
+            console.log(`[AI] Extracting text from "${doc.original_filename}", page ${pageToExtract}`);
+            actualPageText = await extractPDFText(filePath, pageToExtract);
+            console.log(`[AI] Extracted ${actualPageText.length} characters`);
+
+            if (!actualPageText || actualPageText.length < 10) {
+                console.error('[AI] Text extraction returned empty/minimal content');
+                return { answer: `Could not extract text from page ${pageToExtract}. The PDF might be image-based or corrupted.`, error: 'extraction_failed' };
+            }
+
+            // For "book about" questions, also get first page
+            const questionLower = question.toLowerCase();
+            const isBookQuestion = ['this book', 'the book', 'document about', 'what is it about',
+                'what is this about', 'summarize the book', 'summarize this book', 'book about'].some(p => questionLower.includes(p));
+
+            if (isBookQuestion && pageToExtract !== 1) {
+                firstPageText = await extractPDFText(filePath, 1);
+            }
+        } catch (err) {
+            console.error('[AI] Error extracting PDF text:', err);
+            return { answer: `Error reading PDF: ${err}`, error: 'exception' };
+        }
+
+        console.log(`[AI] Sending to Gemini - doc: "${docTitle}", page: ${page_num}, text: ${actualPageText.length} chars`);
         const result = await askGemini(question, actualPageText, page_num, doc_id, docTitle, firstPageText);
         return result;
     });
