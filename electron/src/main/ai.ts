@@ -16,39 +16,36 @@ const GEMINI_API_KEY = getGeminiKey();
 const GEMINI_MODEL = 'gemini-2.5-flash';
 
 export async function askGemini(question: string, pageText: string, pageNum?: number, docId?: string, docTitle?: string, firstPageText?: string): Promise<any> {
-    // Detect if question is page-specific or book-level
-    const questionLower = question.toLowerCase();
-    const isPageSpecific = ['this page', 'current page', 'this chapter', 'current chapter',
-        'summarize this', 'summarize the page', 'what is on this page',
-        'what does this page say', 'explain this page', 'what is this page about']
-        .some(phrase => questionLower.includes(phrase));
-
-    const isBookQuestion = ['this book', 'the book', 'document about', 'what is it about',
-        'what is this about', 'summarize the book', 'summarize this book']
-        .some(phrase => questionLower.includes(phrase));
-
-    // Build context
+    // Build context - ALWAYS include current document and page info
     let context = '';
 
-    // Add document title if available
+    // Always add document info
     if (docTitle) {
-        context += `Document: "${docTitle}"\n\n`;
+        context += `You are helping a user read: "${docTitle}"\n`;
     }
+    if (pageNum) {
+        context += `User is currently on page ${pageNum}.\n`;
+    }
+    context += '\n';
+
+    // Detect if this is a book-level question that needs first page
+    const questionLower = question.toLowerCase();
+    const isBookQuestion = ['this book', 'the book', 'document about', 'what is it about',
+        'what is this about', 'summarize the book', 'summarize this book', 'book about']
+        .some(phrase => questionLower.includes(phrase));
 
     // For book-level questions, include first page for better context
     if (isBookQuestion && firstPageText) {
         context += `Opening content (Page 1):\n${firstPageText.substring(0, 3000)}\n\n`;
-        if (pageText && pageNum && pageNum > 1) {
-            context += `Current page (${pageNum}) content:\n${pageText.substring(0, 1500)}`;
-        }
-    } else if (pageText) {
-        context += isPageSpecific
-            ? `Current page content:\n${pageText.substring(0, 4000)}`
-            : `Document content:\n${pageText.substring(0, 4000)}`;
+    }
+
+    // Always include current page content
+    if (pageText) {
+        context += `Current page content:\n${pageText.substring(0, 4000)}`;
     }
 
     const prompt = context
-        ? `${context}\n\nQuestion: ${question}\n\nProvide a concise, helpful answer based on the document context above. If the context doesn't contain enough information to fully answer, say so and provide what you can infer.`
+        ? `${context}\n\nUser's question: ${question}\n\nProvide a concise, helpful answer. The user is reading this document right now, so answer in context of their reading. If the answer isn't in the visible page content, say so but try to help based on what you can see.`
         : question;
 
     try {
