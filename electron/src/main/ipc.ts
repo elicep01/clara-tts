@@ -234,38 +234,44 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
     // ============================================
 
     ipc.handle('ai:ask', async (_event: any, { question, page_text, page_num, doc_id }: any) => {
-        // Get document metadata for context
+        // ALWAYS extract fresh text from PDF - don't trust frontend cache or database
         let docTitle = '';
-        let docFilename = '';
+        let actualPageText = '';
         let firstPageText = '';
 
         if (doc_id) {
             try {
                 const db = getDatabase();
-                const doc = db.prepare('SELECT original_filename, title FROM documents WHERE id = ?').get(doc_id) as any;
-                if (doc) {
-                    docFilename = doc.original_filename || '';
-                    docTitle = doc.title || docFilename.replace(/\.pdf$/i, '');
-                }
+                const doc = db.prepare('SELECT original_filename FROM documents WHERE id = ?').get(doc_id) as any;
+                const filePath = path.join(getDocumentsFolder(), doc_id, 'document.pdf');
 
-                // For "book about" questions, get first page text if not on page 1
-                const questionLower = question.toLowerCase();
-                const isBookQuestion = ['this book', 'the book', 'document about', 'what is it about',
-                    'what is this about', 'summarize the book', 'summarize this book'].some(p => questionLower.includes(p));
+                if (doc && fs.existsSync(filePath)) {
+                    // Use filename as title (more reliable)
+                    docTitle = doc.original_filename?.replace(/\.pdf$/i, '') || '';
 
-                if (isBookQuestion && page_num !== 1) {
-                    // Get first page text for better context
-                    const filePath = path.join(getDocumentsFolder(), doc_id, 'document.pdf');
-                    if (fs.existsSync(filePath)) {
+                    // ALWAYS extract fresh text from the actual PDF file
+                    const pageToExtract = page_num || 1;
+                    console.log(`[AI] Extracting text from "${doc.original_filename}", page ${pageToExtract}`);
+                    actualPageText = await extractPDFText(filePath, pageToExtract);
+
+                    // For "book about" questions, also get first page
+                    const questionLower = question.toLowerCase();
+                    const isBookQuestion = ['this book', 'the book', 'document about', 'what is it about',
+                        'what is this about', 'summarize the book', 'summarize this book', 'book about'].some(p => questionLower.includes(p));
+
+                    if (isBookQuestion && pageToExtract !== 1) {
                         firstPageText = await extractPDFText(filePath, 1);
                     }
+                } else {
+                    console.error('[AI] Document not found:', doc_id, 'path:', filePath);
                 }
             } catch (err) {
-                console.error('[AI] Error getting doc metadata:', err);
+                console.error('[AI] Error extracting PDF text:', err);
             }
         }
 
-        const result = await askGemini(question, page_text || '', page_num, doc_id, docTitle, firstPageText);
+        console.log(`[AI] Context: "${docTitle}", page ${page_num}, text length: ${actualPageText.length}`);
+        const result = await askGemini(question, actualPageText, page_num, doc_id, docTitle, firstPageText);
         return result;
     });
 
