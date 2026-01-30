@@ -109,6 +109,7 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
             id: doc.id,
             filename: doc.original_filename,
             page_count: info.pageCount,
+            current_page: doc.current_page || 1,  // Return last read position
             is_pdf: true
         };
     });
@@ -249,7 +250,8 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
         try {
             const db = getDatabase();
             const doc = db.prepare('SELECT original_filename FROM documents WHERE id = ?').get(doc_id) as any;
-            const filePath = path.join(getDocumentsFolder(), doc_id, 'document.pdf');
+            // PDFs are stored as {doc_id}.pdf directly in documents folder
+            const filePath = path.join(getDocumentsFolder(), `${doc_id}.pdf`);
 
             console.log(`[AI] Looking for file at: ${filePath}`);
 

@@ -116,18 +116,18 @@ export class ViewerManager {
             this.state.viewerDocName = info.filename;
             this.state.viewerPageCount = info.page_count || 1;
             this.state.isPdf = info.is_pdf;
-            this.state.viewerZoom = 1.0;
+            this.state.viewerZoom = 0.75;  // Default zoom 75%
 
             // Restore last page position from database or reading session
-            let startPage = info.current_page || 0;
+            let startPage = info.current_page || 1;
             if (this.state.readingSession && this.state.readingSession.docId === docId) {
                 startPage = this.state.readingSession.pageNum;
             }
             this.state.viewerCurrentPage = startPage;
             console.log('[Viewer] Restored to page:', startPage);
 
-            document.getElementById('zoom-level').textContent = '100%';
-            document.getElementById('page-content').style.transform = 'scale(1)';
+            document.getElementById('zoom-level').textContent = '75%';
+            document.getElementById('page-content').style.transform = 'scale(0.75)';
 
             this.updatePageIndicator();
             await this.renderPageThumbnails();
