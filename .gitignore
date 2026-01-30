@@ -26,9 +26,8 @@ Thumbs.db
 uploads/
 sessions/
 
-# Keep clara.db but ignore other database files
+# Database files
 *.db
-!clara.db
 
 # Electron
 electron/node_modules/
