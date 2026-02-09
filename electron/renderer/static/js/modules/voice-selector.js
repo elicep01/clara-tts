@@ -241,7 +241,9 @@ export class VoiceSelectorManager {
         try {
             const res = await fetch('/tts/voice');
             const data = await res.json();
-            this.currentVoiceId = data.voice_id;
+            const voiceId = data.voice_id || 'en-US-JennyNeural';
+            this.currentVoiceId = voiceId;
+            this.state.selectedVoice = voiceId;
 
             // Update current voice display
             const display = document.getElementById('current-voice-display');

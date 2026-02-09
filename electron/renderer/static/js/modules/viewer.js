@@ -119,10 +119,11 @@ export class ViewerManager {
             this.state.viewerZoom = 0.75;  // Default zoom 75%
 
             // Restore last page position from database or reading session
-            let startPage = info.current_page || 1;
+            let startPage = info.current_page ?? 0;
             if (this.state.readingSession && this.state.readingSession.docId === docId) {
                 startPage = this.state.readingSession.pageNum;
             }
+            startPage = Math.max(0, Math.min(startPage, Math.max(0, this.state.viewerPageCount - 1)));
             this.state.viewerCurrentPage = startPage;
             console.log('[Viewer] Restored to page:', startPage);
 
@@ -510,6 +511,11 @@ export class ViewerManager {
             const overlay = document.createElement('div');
             overlay.id = 'browse-word-overlay';
             overlay.className = 'word-highlight-overlay browse-overlay';
+            overlay.addEventListener('contextmenu', (e) => {
+                if (e.target !== overlay) return;
+                const selectedText = window.getSelection().toString().trim();
+                this.clara.contextMenu.showPdf(e, null, selectedText);
+            });
 
             img.parentNode.insertBefore(wrapper, img);
             wrapper.appendChild(img);
@@ -566,6 +572,11 @@ export class ViewerManager {
             const overlay = document.createElement('div');
             overlay.className = 'word-highlight-overlay browse-overlay';
             overlay.dataset.pageNum = pageNum;
+            overlay.addEventListener('contextmenu', (e) => {
+                if (e.target !== overlay) return;
+                const selectedText = window.getSelection().toString().trim();
+                this.clara.contextMenu.showPdf(e, null, selectedText);
+            });
 
             img.parentNode.insertBefore(wrapper, img);
             wrapper.appendChild(img);
@@ -604,35 +615,62 @@ export class ViewerManager {
 
     updateCurrentPageFromScroll() {
         const documentDisplay = document.getElementById('document-display');
-        const scrollTop = documentDisplay.scrollTop;
-        const viewportMiddle = scrollTop + documentDisplay.clientHeight / 2;
+        if (!documentDisplay) return;
 
-        // Find which page is currently in the middle of the viewport
+        const displayRect = documentDisplay.getBoundingClientRect();
+        const viewportMiddle = displayRect.top + (displayRect.height / 2);
+
+        // Choose the visible page whose center is closest to viewport center.
+        // This handles zoomed-out views where multiple pages are visible.
         const pages = document.querySelectorAll('.continuous-page');
-        let currentPage = 0;
+        let currentPage = this.state.viewerCurrentPage || 0;
+        let bestDistance = Infinity;
+        let bestVisibleDistance = Infinity;
+        let foundVisiblePage = false;
 
-        pages.forEach((page, index) => {
-            const pageTop = page.offsetTop;
-            const pageBottom = pageTop + page.offsetHeight;
+        pages.forEach((page) => {
+            const rect = page.getBoundingClientRect();
+            const pageNum = parseInt(page.dataset.pageNum || '0', 10);
+            const visibleTop = Math.max(rect.top, displayRect.top);
+            const visibleBottom = Math.min(rect.bottom, displayRect.bottom);
+            const visibleHeight = Math.max(0, visibleBottom - visibleTop);
+            const pageCenter = rect.top + (rect.height / 2);
+            const centerDistance = Math.abs(pageCenter - viewportMiddle);
 
-            if (viewportMiddle >= pageTop && viewportMiddle <= pageBottom) {
-                currentPage = index;
+            if (visibleHeight > 0) {
+                foundVisiblePage = true;
+                if (centerDistance < bestVisibleDistance) {
+                    bestVisibleDistance = centerDistance;
+                    currentPage = pageNum;
+                }
+            }
+
+            if (centerDistance < bestDistance) {
+                bestDistance = centerDistance;
+                currentPage = pageNum;
             }
         });
+
+        // If no page was technically visible (edge case), fallback to closest center.
+        if (!foundVisiblePage) {
+            // currentPage already holds closest-center fallback
+        }
 
         if (currentPage !== this.state.viewerCurrentPage) {
             this.state.viewerCurrentPage = currentPage;
             this.updatePageIndicator();
-
-            // Update active thumbnail
-            document.querySelectorAll('.page-thumb').forEach(el => {
-                el.classList.remove('active');
-                if (parseInt(el.dataset.page) === currentPage) {
-                    el.classList.add('active');
-                    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                }
-            });
+            this.setActiveThumbnail(currentPage);
         }
+    }
+
+    setActiveThumbnail(pageNum) {
+        document.querySelectorAll('.page-thumb').forEach(el => {
+            el.classList.remove('active');
+            if (parseInt(el.dataset.page) === pageNum) {
+                el.classList.add('active');
+                el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        });
     }
 
     goToPage(pageNum) {
@@ -668,6 +706,7 @@ export class ViewerManager {
 
         this.state.viewerCurrentPage = pageNum;
         this.updatePageIndicator();
+        this.setActiveThumbnail(pageNum);
 
         // Save page position to database
         if (this.state.viewerDocId) {
@@ -683,14 +722,6 @@ export class ViewerManager {
             // In single-page mode, load the page
             this.loadPage(pageNum);
         }
-
-        document.querySelectorAll('.page-thumb').forEach(el => {
-            el.classList.remove('active');
-            if (parseInt(el.dataset.page) === pageNum) {
-                el.classList.add('active');
-                el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }
-        });
 
         this.updateReadButtonText();
         this.clara.navigation.updateTitle();

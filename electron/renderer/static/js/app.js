@@ -82,22 +82,158 @@ class Clara {
         // Load saved voice preference
         await this.loadSavedVoice();
 
+        // First-time onboarding
+        await this.showOnboardingIfNeeded();
+
         // Load library on startup
         await this.library.load();
         this.navigation.updateTitle();
     }
 
     async loadSavedVoice() {
+        const DEFAULT_EDGE_VOICE = 'en-US-JennyNeural';
+
         try {
             const res = await fetch('/tts/voice');
             const data = await res.json();
-            if (data.voice_id) {
-                this.state.selectedVoice = data.voice_id;
-                this.voiceSelector.currentVoiceId = data.voice_id;
+            const voiceId = data.voice_id || DEFAULT_EDGE_VOICE;
+
+            if (!data.voice_id) {
+                await fetch('/tts/voice', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ voice_id: DEFAULT_EDGE_VOICE })
+                });
             }
+
+            this.state.selectedVoice = voiceId;
+            this.voiceSelector.currentVoiceId = voiceId;
         } catch (err) {
             console.log('Could not load saved voice:', err);
+            this.state.selectedVoice = DEFAULT_EDGE_VOICE;
+            this.voiceSelector.currentVoiceId = DEFAULT_EDGE_VOICE;
         }
+    }
+
+    async showOnboardingIfNeeded() {
+        const ONBOARDING_KEY = 'onboarding_completed_v1';
+        let completed = null;
+
+        try {
+            if (window.electronAPI?.prefs) {
+                completed = await window.electronAPI.prefs.get(ONBOARDING_KEY);
+            } else {
+                completed = localStorage.getItem(ONBOARDING_KEY);
+            }
+        } catch (err) {
+            completed = localStorage.getItem(ONBOARDING_KEY);
+        }
+
+        const onboardingCompleted =
+            completed === true ||
+            completed === 'true' ||
+            completed === 1 ||
+            completed === '1';
+
+        if (onboardingCompleted) return;
+
+        const modal = document.createElement('div');
+        modal.id = 'onboarding-modal';
+        modal.className = 'modal-backdrop';
+        modal.style.cssText = 'position:fixed;inset:0;background:rgba(10,20,35,0.55);z-index:10001;display:flex;align-items:center;justify-content:center;padding:24px;';
+
+        modal.innerHTML = `
+            <div class="onboarding-card" style="width:min(760px,96vw);background:#ffffff;border-radius:18px;box-shadow:0 28px 60px rgba(24,37,58,0.22);overflow:hidden;">
+                <div style="padding:22px 26px;border-bottom:1px solid #edf1f5;background:linear-gradient(180deg,#fbfcff,#f6f9fd);">
+                    <h2 style="margin:0;font-size:22px;color:#1f2a3a;">Welcome to Clara</h2>
+                    <p style="margin:8px 0 0;color:#5a6778;font-size:14px;">A calm reading companion for focused study.</p>
+                </div>
+
+                <div style="padding:22px 26px;">
+                    <div class="onboarding-step" data-step="1">
+                        <h3 style="margin:0 0 10px;font-size:16px;color:#1f2a3a;">1. Build your library</h3>
+                        <p style="margin:0;color:#586678;line-height:1.6;">Upload PDFs, create folders, and drag items to organize. Delete moves items to Trash so you can restore later.</p>
+                    </div>
+                    <div class="onboarding-step hidden" data-step="2">
+                        <h3 style="margin:0 0 10px;font-size:16px;color:#1f2a3a;">2. Read with audio + word tracking</h3>
+                        <p style="margin:0;color:#586678;line-height:1.6;">Press <strong>Read This Page</strong>. Clara reads aloud with synchronized word highlighting on the page.</p>
+                    </div>
+                    <div class="onboarding-step hidden" data-step="3">
+                        <h3 style="margin:0 0 10px;font-size:16px;color:#1f2a3a;">3. Understand faster</h3>
+                        <p style="margin:0;color:#586678;line-height:1.6;">Click or double-click words for meanings, ask questions in context, and save notes while you read.</p>
+                    </div>
+                    <div class="onboarding-step hidden" data-step="4">
+                        <h3 style="margin:0 0 10px;font-size:16px;color:#1f2a3a;">4. Keep it calm</h3>
+                        <p style="margin:0;color:#586678;line-height:1.6;">Enable <strong>Calm focus mode</strong> in Settings → Reading for a low-distraction study flow.</p>
+                    </div>
+
+                    <div style="display:flex;gap:8px;margin-top:18px;" id="onboarding-dots">
+                        <span style="width:8px;height:8px;border-radius:999px;background:#3b7cff;"></span>
+                        <span style="width:8px;height:8px;border-radius:999px;background:#d6deea;"></span>
+                        <span style="width:8px;height:8px;border-radius:999px;background:#d6deea;"></span>
+                        <span style="width:8px;height:8px;border-radius:999px;background:#d6deea;"></span>
+                    </div>
+                </div>
+
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 26px;border-top:1px solid #edf1f5;background:#fcfdff;">
+                    <button id="onboarding-skip" style="border:none;background:transparent;color:#6a7688;font-weight:600;cursor:pointer;">Skip</button>
+                    <div style="display:flex;gap:10px;">
+                        <button id="onboarding-prev" style="border:1px solid #d8e0eb;background:#fff;color:#3f4d60;border-radius:10px;padding:8px 14px;cursor:pointer;" disabled>Back</button>
+                        <button id="onboarding-next" style="border:none;background:#3b7cff;color:#fff;border-radius:10px;padding:8px 14px;font-weight:600;cursor:pointer;">Next</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        let step = 1;
+        const totalSteps = 4;
+
+        const renderStep = () => {
+            modal.querySelectorAll('.onboarding-step').forEach(el => {
+                const elStep = parseInt(el.dataset.step);
+                el.classList.toggle('hidden', elStep !== step);
+            });
+
+            const dots = modal.querySelectorAll('#onboarding-dots span');
+            dots.forEach((dot, idx) => {
+                dot.style.background = idx + 1 === step ? '#3b7cff' : '#d6deea';
+            });
+
+            const prevBtn = modal.querySelector('#onboarding-prev');
+            const nextBtn = modal.querySelector('#onboarding-next');
+            prevBtn.disabled = step === 1;
+            nextBtn.textContent = step === totalSteps ? 'Get Started' : 'Next';
+        };
+
+        const complete = async () => {
+            try {
+                if (window.electronAPI?.prefs) {
+                    await window.electronAPI.prefs.set(ONBOARDING_KEY, true);
+                }
+                localStorage.setItem(ONBOARDING_KEY, 'true');
+            } catch (err) {
+                localStorage.setItem(ONBOARDING_KEY, 'true');
+            }
+            modal.remove();
+        };
+
+        modal.querySelector('#onboarding-skip').addEventListener('click', complete);
+        modal.querySelector('#onboarding-prev').addEventListener('click', () => {
+            step = Math.max(1, step - 1);
+            renderStep();
+        });
+        modal.querySelector('#onboarding-next').addEventListener('click', async () => {
+            if (step >= totalSteps) {
+                await complete();
+                return;
+            }
+            step += 1;
+            renderStep();
+        });
+
+        renderStep();
     }
 
     showFirstLaunchSetup(baseModel) {

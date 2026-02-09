@@ -10,7 +10,8 @@ export class SettingsManager {
         this.readingSettings = {
             highlightEnabled: true,
             showReadWords: true,
-            autoAdvance: true
+            autoAdvance: true,
+            focusMode: false
         };
     }
 
@@ -55,6 +56,7 @@ export class SettingsManager {
         const highlightToggle = document.getElementById('setting-highlight-enabled');
         const showReadToggle = document.getElementById('setting-show-read-words');
         const autoAdvanceToggle = document.getElementById('setting-auto-advance');
+        const focusModeToggle = document.getElementById('setting-focus-mode');
 
         if (highlightToggle) {
             highlightToggle.checked = this.readingSettings.highlightEnabled;
@@ -83,6 +85,18 @@ export class SettingsManager {
                 this.saveReadingSettings();
             });
         }
+
+        if (focusModeToggle) {
+            focusModeToggle.checked = this.readingSettings.focusMode;
+            focusModeToggle.addEventListener('change', (e) => {
+                this.readingSettings.focusMode = e.target.checked;
+                this.saveReadingSettings();
+                this.applyReadingSettingChange('focusMode', e.target.checked);
+            });
+        }
+
+        // Apply focus mode on startup.
+        this.applyReadingSettingChange('focusMode', this.readingSettings.focusMode);
     }
 
     loadReadingSettings() {
@@ -127,6 +141,8 @@ export class SettingsManager {
                     el.classList.remove('read');
                 });
             }
+        } else if (setting === 'focusMode') {
+            document.body.classList.toggle('focus-mode', !!enabled);
         }
     }
 

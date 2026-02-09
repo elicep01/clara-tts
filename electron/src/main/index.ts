@@ -11,14 +11,29 @@ import { initializeOllama, shutdownOllama } from './ollama-manager';
 let mainWindow: BrowserWindow | null = null;
 let io: Server | null = null;
 
+function getAppIconPath() {
+    const icoPath = path.join(__dirname, '../../build/icons/icon.ico');
+    const pngPath = path.join(__dirname, '../../build/icons/icon_512x512.png');
+
+    if (process.platform === 'darwin') {
+        return pngPath;
+    }
+    if (process.platform === 'win32') {
+        return fs.existsSync(icoPath) ? icoPath : pngPath;
+    }
+    return pngPath;
+}
+
 function createWindow() {
+    const iconPath = getAppIconPath();
+
     mainWindow = new BrowserWindow({
         width: 1200,
         height: 800,
         minWidth: 800,
         minHeight: 600,
         backgroundColor: '#FAFAF9',  // Match --color-bg-primary
-        icon: path.join(__dirname, '../../build/icons/icon.icns'),
+        icon: iconPath,
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
@@ -104,6 +119,18 @@ function createWindow() {
 async function initializeApp() {
     try {
         console.log('Initializing Clara...');
+        app.setName('Clara');
+
+        if (process.platform === 'win32') {
+            app.setAppUserModelId('com.clara.reader');
+        }
+
+        if (process.platform === 'darwin') {
+            const dockIcon = path.join(__dirname, '../../build/icons/icon_512x512.png');
+            if (fs.existsSync(dockIcon) && app.dock) {
+                app.dock.setIcon(dockIcon);
+            }
+        }
 
         // Initialize database
         await initDatabase();

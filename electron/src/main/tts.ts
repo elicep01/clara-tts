@@ -22,10 +22,7 @@ export interface Voice {
     Status: string;
 }
 
-const TTS_VOICES = {
-    female: 'en-US-JennyNeural',
-    male: 'en-US-GuyNeural'
-};
+const DEFAULT_EDGE_VOICE = 'en-US-JennyNeural';
 
 // Cache for available voices
 let cachedVoices: Voice[] | null = null;
@@ -79,13 +76,10 @@ export async function getAvailableVoices(): Promise<Voice[]> {
 
 export async function generateAudioWithTimings(
     text: string,
-    voice: string = 'en-US-JennyNeural'
+    voice: string = DEFAULT_EDGE_VOICE
 ): Promise<{ audioPath: string; timings: WordTiming[] }> {
-    // Support both shorthand ('male'/'female') and full voice IDs
-    let voiceName = voice;
-    if (voice === 'male' || voice === 'female') {
-        voiceName = TTS_VOICES[voice as keyof typeof TTS_VOICES];
-    }
+    // Always resolve to a valid Edge voice id.
+    const voiceName = await resolveEdgeVoice(voice);
 
     // Create cache key
     const cacheKey = crypto.createHash('md5').update(`${text}:${voiceName}`).digest('hex');
@@ -138,6 +132,21 @@ export async function generateAudioWithTimings(
         console.error('[TTS] Generation failed:', error);
         return generateFallbackAudio(text, cacheFile);
     }
+}
+
+async function resolveEdgeVoice(voice?: string): Promise<string> {
+    const requested = typeof voice === 'string' ? voice.trim() : '';
+    if (!requested) return DEFAULT_EDGE_VOICE;
+
+    const availableVoices = await getAvailableVoices();
+    const validVoiceIds = new Set(availableVoices.map(v => v.ShortName));
+
+    if (validVoiceIds.has(requested)) {
+        return requested;
+    }
+
+    console.warn(`[TTS] Unknown voice "${requested}", falling back to ${DEFAULT_EDGE_VOICE}`);
+    return DEFAULT_EDGE_VOICE;
 }
 
 function parseEdgeTTSTimings(subtitleFile: string): WordTiming[] {

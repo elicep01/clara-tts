@@ -196,7 +196,7 @@
 
             if (urlStr === '/word-timings' && method === 'POST') {
                 const result = await window.electronAPI.tts.getTimings(body.text, body.voice);
-                return createResponse(result);
+                return createResponse(result.timings || []);
             }
 
             // AI - Q&A
@@ -262,6 +262,16 @@
             if (libDocMatch) {
                 const doc_id = libDocMatch[1].split('/')[0]; // Handle /move and /rename suffixes
 
+                if (method === 'POST' && urlStr.includes('/trash')) {
+                    const result = await window.electronAPI.library.moveDocumentToTrash(doc_id);
+                    return createResponse(result);
+                }
+
+                if (method === 'POST' && urlStr.includes('/restore')) {
+                    const result = await window.electronAPI.library.restoreDocument(doc_id);
+                    return createResponse(result);
+                }
+
                 if (method === 'DELETE') {
                     const result = await window.electronAPI.library.deleteDocument(doc_id);
                     return createResponse(result);
@@ -296,6 +306,16 @@
             if (libFolderMatch) {
                 const folder_id = libFolderMatch[1].split('/')[0]; // Handle /move suffix
 
+                if (method === 'POST' && urlStr.includes('/trash')) {
+                    const result = await window.electronAPI.library.moveFolderToTrash(folder_id);
+                    return createResponse(result);
+                }
+
+                if (method === 'POST' && urlStr.includes('/restore')) {
+                    const result = await window.electronAPI.library.restoreFolder(folder_id);
+                    return createResponse(result);
+                }
+
                 if (method === 'DELETE') {
                     const result = await window.electronAPI.library.deleteFolder(folder_id);
                     return createResponse(result);
@@ -323,6 +343,19 @@
                 return createResponse(result);
             }
 
+            if (urlStr === '/library/delete-multiple-permanent' && method === 'POST') {
+                const result = await window.electronAPI.library.deleteMultiplePermanent(
+                    body.doc_ids || [],
+                    body.folder_ids || []
+                );
+                return createResponse(result);
+            }
+
+            if (urlStr === '/library/empty-trash' && method === 'POST') {
+                const result = await window.electronAPI.library.emptyTrash();
+                return createResponse(result);
+            }
+
             // TTS - Get available voices
             if (urlStr === '/tts/voices' && method === 'GET') {
                 const result = await window.electronAPI.tts.getVoices();
@@ -341,7 +374,7 @@
             // TTS - Voice preferences
             if ((urlStr === '/voice' || urlStr === '/tts/voice') && method === 'GET') {
                 const voice = await window.electronAPI.prefs.get('voice_id');
-                return createResponse({ voice_id: voice || 'en-US-AvaNeural' });
+                return createResponse({ voice_id: voice || 'en-US-JennyNeural' });
             }
 
             if ((urlStr === '/voice' || urlStr === '/tts/voice') && method === 'POST') {

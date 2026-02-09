@@ -16,15 +16,7 @@ const GEMINI_API_KEY = getGeminiKey();
 const GEMINI_MODEL = 'gemini-2.5-flash';
 
 export async function askGemini(question: string, pageText: string, pageNum?: number, docId?: string, docTitle?: string, firstPageText?: string): Promise<any> {
-    // CRITICAL: Check if we have actual page content - refuse to answer if not
-    if (!pageText || pageText.trim().length < 50) {
-        console.error('[Gemini] No page content available - refusing to hallucinate');
-        return {
-            answer: "I couldn't extract text from this page. Please make sure you have a document open and try again.",
-            context_used: 0,
-            error: 'no_content'
-        };
-    }
+    const sparseContext = !pageText || pageText.trim().length < 120;
 
     console.log(`[Gemini] Got ${pageText.length} chars of page text, doc: "${docTitle}", page: ${pageNum}`);
 
@@ -54,12 +46,19 @@ export async function askGemini(question: string, pageText: string, pageNum?: nu
     // ALWAYS include current page content
     context += `Current page content:\n${pageText.substring(0, 4000)}`;
 
-    const prompt = `${context}\n\nUser's question: ${question}\n\nIMPORTANT: Answer ONLY based on the document content above. Do NOT make up or guess information. If the answer is not in the text, say "I don't see that information on this page."`;
+    const instruction = sparseContext
+        ? 'The extracted text is sparse. Give a helpful best-effort answer using the document title and available snippets. Clearly mark uncertainty and avoid confident fabrication.'
+        : 'Answer ONLY based on the document content above. Do NOT make up or guess information. If the answer is not in the text, say "I don\'t see that information on this page."';
+
+    const prompt = `${context}\n\nUser's question: ${question}\n\nIMPORTANT: ${instruction}`;
 
     try {
         const response = await callGeminiAPI(prompt);
+        const finalResponse = sparseContext
+            ? `Note: Text extraction was limited, so this is a best-effort answer.\n\n${response}`
+            : response;
         return {
-            answer: response,
+            answer: finalResponse,
             context_used: context ? 1 : 0
         };
     } catch (error) {
@@ -84,33 +83,105 @@ Rules:
 
     try {
         const response = await callGeminiAPI(prompt);
+        console.log('[Gemini] Raw definition response:', response.substring(0, 200));
 
-        // Try to parse JSON from response
-        try {
-            // Remove markdown code fences if present
-            let cleanResponse = response.trim();
-            if (cleanResponse.startsWith('```')) {
-                cleanResponse = cleanResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-            }
-
-            const jsonData = JSON.parse(cleanResponse);
+        // Robust JSON extraction
+        const jsonData = extractJSON(response, word);
+        if (jsonData) {
             return jsonData;
-        } catch (parseError) {
-            // If JSON parsing fails, return a simple structure
-            return {
-                word: word,
-                meanings: [{
-                    partOfSpeech: "unknown",
-                    definitions: [{
-                        definition: response.trim()
-                    }]
-                }]
-            };
         }
+
+        // If all parsing fails, create a clean definition from the response
+        // Strip any JSON-like content and extract just the definition text
+        let cleanDef = response.trim();
+
+        // Try to extract definition from malformed JSON
+        const defMatch = cleanDef.match(/"definition"\s*:\s*"([^"]+)"/);
+        if (defMatch) {
+            cleanDef = defMatch[1];
+        } else {
+            // Remove any JSON artifacts
+            cleanDef = cleanDef
+                .replace(/^\{.*?"definition"\s*:\s*"?/s, '')
+                .replace(/"?\s*\}.*$/s, '')
+                .replace(/^["'\[\{]+/, '')
+                .replace(/["'\]\}]+$/, '')
+                .trim();
+        }
+
+        // Don't show raw JSON as definition
+        if (cleanDef.includes('{') || cleanDef.includes('"partOfSpeech"')) {
+            cleanDef = `A term related to ${word}. Please try looking up a simpler form of this word.`;
+        }
+
+        return {
+            word: word,
+            meanings: [{
+                partOfSpeech: "noun",
+                definitions: [{
+                    definition: cleanDef
+                }]
+            }]
+        };
     } catch (error) {
         console.error('[Gemini] Error:', error);
         throw new Error(`Definition request failed: ${error}`);
     }
+}
+
+function extractJSON(response: string, word: string): any | null {
+    // Try multiple extraction methods
+    let cleanResponse = response.trim();
+
+    // Method 1: Remove markdown code fences
+    if (cleanResponse.startsWith('```')) {
+        cleanResponse = cleanResponse
+            .replace(/```json\s*/gi, '')
+            .replace(/```\s*/g, '')
+            .trim();
+    }
+
+    // Method 2: Extract JSON object directly
+    const jsonMatch = cleanResponse.match(/\{[\s\S]*"meanings"[\s\S]*\}/);
+    if (jsonMatch) {
+        cleanResponse = jsonMatch[0];
+    }
+
+    // Method 3: Try parsing
+    try {
+        const parsed = JSON.parse(cleanResponse);
+
+        // Validate structure
+        if (parsed.meanings && Array.isArray(parsed.meanings)) {
+            // Ensure partOfSpeech is never "unknown" from API
+            for (const meaning of parsed.meanings) {
+                if (!meaning.partOfSpeech || meaning.partOfSpeech === 'unknown') {
+                    meaning.partOfSpeech = 'noun';
+                }
+            }
+            return parsed;
+        }
+    } catch (e) {
+        console.log('[Gemini] JSON parse attempt failed:', e);
+    }
+
+    // Method 4: Try fixing common JSON issues
+    try {
+        // Fix unescaped quotes in definitions
+        const fixed = cleanResponse
+            .replace(/:\s*"([^"]*)"([^,}\]]*)"([^"]*)"/, ': "$1\'$2\'$3"')
+            .replace(/\n/g, ' ')
+            .replace(/\r/g, '');
+
+        const parsed = JSON.parse(fixed);
+        if (parsed.meanings && Array.isArray(parsed.meanings)) {
+            return parsed;
+        }
+    } catch (e) {
+        // Silent fail
+    }
+
+    return null;
 }
 
 function callGeminiAPI(prompt: string): Promise<string> {

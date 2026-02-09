@@ -42,7 +42,13 @@ export class ContextMenuManager {
         const menu = document.getElementById('context-menu');
 
         const openBtn = menu.querySelector('[data-action="open"]');
-        openBtn.style.display = itemType === 'document' ? 'flex' : 'none';
+        const renameBtn = menu.querySelector('[data-action="rename"]');
+        const moveBtn = menu.querySelector('[data-action="move"]');
+
+        const isTrashView = this.state.viewingTrash;
+        openBtn.style.display = itemType === 'document' && !isTrashView ? 'flex' : 'none';
+        renameBtn.style.display = isTrashView ? 'none' : 'flex';
+        moveBtn.style.display = isTrashView ? 'none' : 'flex';
 
         menu.style.left = `${e.clientX}px`;
         menu.style.top = `${e.clientY}px`;
@@ -96,10 +102,23 @@ export class ContextMenuManager {
         e.preventDefault();
         e.stopPropagation();
 
+        let anchorPoint = null;
+        const container = e.target.closest('.page-image-wrapper') || document.querySelector('.page-image-wrapper');
+        if (container) {
+            const rect = container.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+                anchorPoint = {
+                    x: ((e.clientX - rect.left) / rect.width) * 100,
+                    y: ((e.clientY - rect.top) / rect.height) * 100
+                };
+            }
+        }
+
         this.pdfContextData = {
             wordIndex: wordIndex,
             selectedText: selectedText,
-            pageNum: this.state.viewerCurrentPage
+            pageNum: this.state.viewerCurrentPage,
+            anchorPoint
         };
 
         const menu = document.getElementById('pdf-context-menu');
@@ -107,8 +126,9 @@ export class ContextMenuManager {
         const readFromHere = menu.querySelector('[data-action="read-from-here"]');
         const addNote = menu.querySelector('[data-action="add-note"]');
 
-        readFromHere.style.display = wordIndex !== null ? 'flex' : 'none';
-        addNote.style.display = (selectedText || wordIndex !== null) ? 'flex' : 'none';
+        const hasWordIndex = wordIndex !== null && wordIndex !== undefined;
+        readFromHere.style.display = hasWordIndex ? 'flex' : 'none';
+        addNote.style.display = 'flex';
 
         let left = e.clientX;
         let top = e.clientY;
@@ -132,17 +152,17 @@ export class ContextMenuManager {
     }
 
     async handlePdfAction(action) {
-        const { wordIndex, selectedText } = this.pdfContextData || {};
+        const { wordIndex, selectedText, anchorPoint, pageNum } = this.pdfContextData || {};
 
         this.hidePdf();
 
         switch (action) {
             case 'read-from-here':
-                await this.clara.reading.readFromWord(wordIndex);
+                await this.clara.reading.readFromWord(wordIndex, pageNum);
                 break;
 
             case 'add-note':
-                this.clara.notes.addFromSelection(wordIndex, selectedText);
+                this.clara.notes.addFromSelection(wordIndex, selectedText, anchorPoint);
                 break;
         }
     }

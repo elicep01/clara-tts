@@ -31,7 +31,7 @@ export class DictionaryManager {
         this.showPopup(targetElement, cleanWord, null, true);
 
         try {
-            // STEP 1: Try dictionary API first
+            // STEP 1: Try dictionary API first (token-free).
             const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(cleanWord)}`);
 
             if (res.ok) {
@@ -44,12 +44,11 @@ export class DictionaryManager {
                 }
             }
 
-            // STEP 2: Dictionary API failed - use LLM fallback
+            // STEP 2: API returned no usable definition, use LLM fallback.
             console.log(`[Dictionary] API returned nothing for "${cleanWord}", trying LLM...`);
             await this.lookupWithLLM(word, cleanWord, targetElement);
-
         } catch (err) {
-            // STEP 3: If dictionary API errors, also try LLM
+            // STEP 3: API failed, use LLM fallback.
             console.log(`[Dictionary] API error for "${cleanWord}":`, err);
             await this.lookupWithLLM(word, cleanWord, targetElement);
         }

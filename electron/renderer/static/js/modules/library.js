@@ -12,6 +12,7 @@ export class LibraryManager {
         document.getElementById('btn-new-folder').addEventListener('click', () => this.clara.modals.showFolder());
         document.getElementById('btn-empty-upload').addEventListener('click', () => this.clara.modals.showUpload());
         document.querySelector('[data-folder-id=""]').addEventListener('click', () => this.selectFolder(null));
+        document.querySelector('[data-folder-id="__trash__"]').addEventListener('click', () => this.selectFolder('__trash__'));
 
         const zone = document.getElementById('upload-zone');
         const input = document.getElementById('file-input');
@@ -89,6 +90,16 @@ export class LibraryManager {
             deleteSelectedBtn.addEventListener('click', () => this.deleteSelected());
         }
 
+        const restoreSelectedBtn = document.getElementById('btn-restore-selected');
+        if (restoreSelectedBtn) {
+            restoreSelectedBtn.addEventListener('click', () => this.restoreSelected());
+        }
+
+        const emptyTrashBtn = document.getElementById('btn-empty-trash');
+        if (emptyTrashBtn) {
+            emptyTrashBtn.addEventListener('click', () => this.emptyTrash());
+        }
+
         const cancelSelectionBtn = document.getElementById('btn-cancel-selection');
         if (cancelSelectionBtn) {
             cancelSelectionBtn.addEventListener('click', () => this.clearSelection());
@@ -145,16 +156,23 @@ export class LibraryManager {
         const tree = document.getElementById('folder-tree');
         tree.innerHTML = '';
 
-        const rootFolders = this.state.folders.filter(f => !f.parent_id);
+        const rootFolders = this.state.folders.filter(f => !f.parent_id && !f.deleted_at);
         rootFolders.forEach(folder => {
             this.renderFolderWithChildren(tree, folder, 0);
         });
 
         const allDocsBtn = document.querySelector('[data-folder-id=""]');
-        if (this.state.currentFolderId === null) {
+        const trashBtn = document.querySelector('[data-folder-id="__trash__"]');
+        if (this.state.currentFolderId === null && !this.state.viewingTrash) {
             allDocsBtn.classList.add('active');
         } else {
             allDocsBtn.classList.remove('active');
+        }
+
+        if (this.state.viewingTrash) {
+            trashBtn.classList.add('active');
+        } else {
+            trashBtn.classList.remove('active');
         }
     }
 
@@ -183,20 +201,30 @@ export class LibraryManager {
 
         container.appendChild(div);
 
-        const children = this.state.folders.filter(f => f.parent_id === folder.id);
+        const children = this.state.folders.filter(f => f.parent_id === folder.id && !f.deleted_at);
         children.forEach(child => {
             this.renderFolderWithChildren(container, child, depth + 1);
         });
     }
 
     selectFolder(folderId) {
-        this.state.currentFolderId = folderId;
+        if (folderId === '__trash__') {
+            this.state.viewingTrash = true;
+            this.state.currentFolderId = null;
+        } else {
+            this.state.viewingTrash = false;
+            this.state.currentFolderId = folderId;
+        }
+
+        this.clearSelection();
 
         document.querySelectorAll('.folder-item').forEach(el => {
             el.classList.remove('active');
         });
 
-        const activeEl = folderId
+        const activeEl = this.state.viewingTrash
+            ? document.querySelector('[data-folder-id="__trash__"]')
+            : folderId
             ? document.querySelector(`.folder-item[data-folder-id="${folderId}"]`)
             : document.querySelector('[data-folder-id=""]');
         if (activeEl) activeEl.classList.add('active');
@@ -208,6 +236,14 @@ export class LibraryManager {
     updateBreadcrumb() {
         const breadcrumb = document.getElementById('breadcrumb');
         breadcrumb.innerHTML = '';
+
+        if (this.state.viewingTrash) {
+            const trash = document.createElement('span');
+            trash.className = 'breadcrumb-item active';
+            trash.textContent = 'Trash';
+            breadcrumb.appendChild(trash);
+            return;
+        }
 
         const path = [];
         let currentId = this.state.currentFolderId;
@@ -263,24 +299,32 @@ export class LibraryManager {
         }
 
         // Filter for current folder
-        let docs;
-        if (this.state.currentFolderId) {
-            docs = this.state.documents.filter(d => d.folder_id === this.state.currentFolderId);
-        } else {
-            docs = this.state.documents;
-        }
+        let docs = [];
+        let subfolders = [];
 
-        const subfolders = this.state.folders.filter(f => {
+        if (this.state.viewingTrash) {
+            docs = this.state.documents.filter(d => !!d.deleted_at);
+            subfolders = this.state.folders.filter(f => !!f.deleted_at);
+        } else {
             if (this.state.currentFolderId) {
-                return f.parent_id === this.state.currentFolderId;
+                docs = this.state.documents.filter(d => d.folder_id === this.state.currentFolderId && !d.deleted_at);
+            } else {
+                docs = this.state.documents.filter(d => !d.deleted_at);
             }
-            return !f.parent_id;
-        });
+
+            subfolders = this.state.folders.filter(f => {
+                if (f.deleted_at) return false;
+                if (this.state.currentFolderId) {
+                    return f.parent_id === this.state.currentFolderId;
+                }
+                return !f.parent_id;
+            });
+        }
 
         grid.innerHTML = '';
 
         // Show folder-specific empty message if in a folder with no content
-        if (docs.length === 0 && subfolders.length === 0 && this.state.currentFolderId) {
+        if (docs.length === 0 && subfolders.length === 0 && this.state.currentFolderId && !this.state.viewingTrash) {
             const emptyDiv = document.createElement('div');
             emptyDiv.className = 'empty-state';
             emptyDiv.innerHTML = `
@@ -289,6 +333,21 @@ export class LibraryManager {
                 </svg>
                 <p>This folder is empty</p>
                 <span>Drag documents here to organize them</span>
+            `;
+            grid.appendChild(emptyDiv);
+            return;
+        }
+
+        if (docs.length === 0 && subfolders.length === 0 && this.state.viewingTrash) {
+            const emptyDiv = document.createElement('div');
+            emptyDiv.className = 'empty-state';
+            emptyDiv.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+                </svg>
+                <p>Trash is empty</p>
+                <span>Deleted items will appear here until permanently removed.</span>
             `;
             grid.appendChild(emptyDiv);
             return;
@@ -308,7 +367,7 @@ export class LibraryManager {
         card.className = 'document-card folder-card';
         card.dataset.folderId = folder.id;
         card.dataset.dropTarget = 'true';
-        card.draggable = true;
+        card.draggable = !this.state.viewingTrash;
 
         // Check if selected
         const isSelected = this.state.selectedItems.some(
@@ -326,7 +385,7 @@ export class LibraryManager {
                 </svg>
             </div>
             <div class="doc-title">${folder.name}</div>
-            <div class="doc-meta">Folder</div>
+            <div class="doc-meta">${this.state.viewingTrash ? 'In Trash' : 'Folder'}</div>
         `;
 
         card.addEventListener('click', (e) => this.handleCardClick(e, folder.id, 'folder'));
@@ -346,7 +405,7 @@ export class LibraryManager {
         const card = document.createElement('div');
         card.className = 'document-card';
         card.dataset.docId = doc.id;
-        card.draggable = true;
+        card.draggable = !this.state.viewingTrash;
 
         // Check if selected
         const isSelected = this.state.selectedItems.some(
@@ -368,7 +427,7 @@ export class LibraryManager {
                 </svg>
             </div>
             <div class="doc-title">${doc.name}</div>
-            <div class="doc-meta">${ext}</div>
+            <div class="doc-meta">${this.state.viewingTrash ? `In Trash · ${ext}` : ext}</div>
             ${progress > 0 ? `
                 <div class="progress-bar">
                     <div class="progress-fill" style="width: ${progress}%"></div>
@@ -391,6 +450,11 @@ export class LibraryManager {
 
     // Handle card click with multi-select support
     handleCardClick(e, id, type) {
+        if (this.state.viewingTrash) {
+            this.toggleSelection(id, type);
+            return;
+        }
+
         // If Ctrl/Cmd or Shift is held, toggle selection
         if (e.ctrlKey || e.metaKey || e.shiftKey) {
             e.preventDefault();
@@ -444,16 +508,25 @@ export class LibraryManager {
         this.state.selectedItems = [];
 
         // Get current folder's documents and subfolders
-        const docs = this.state.currentFolderId
-            ? this.state.documents.filter(d => d.folder_id === this.state.currentFolderId)
-            : this.state.documents;
+        let docs = [];
+        let subfolders = [];
 
-        const subfolders = this.state.folders.filter(f => {
-            if (this.state.currentFolderId) {
-                return f.parent_id === this.state.currentFolderId;
-            }
-            return !f.parent_id;
-        });
+        if (this.state.viewingTrash) {
+            docs = this.state.documents.filter(d => !!d.deleted_at);
+            subfolders = this.state.folders.filter(f => !!f.deleted_at);
+        } else {
+            docs = this.state.currentFolderId
+                ? this.state.documents.filter(d => d.folder_id === this.state.currentFolderId && !d.deleted_at)
+                : this.state.documents.filter(d => !d.deleted_at);
+
+            subfolders = this.state.folders.filter(f => {
+                if (f.deleted_at) return false;
+                if (this.state.currentFolderId) {
+                    return f.parent_id === this.state.currentFolderId;
+                }
+                return !f.parent_id;
+            });
+        }
 
         subfolders.forEach(f => this.state.selectedItems.push({ id: f.id, type: 'folder' }));
         docs.forEach(d => this.state.selectedItems.push({ id: d.id, type: 'document' }));
@@ -466,10 +539,29 @@ export class LibraryManager {
         const count = this.state.selectedItems.length;
         const toolbar = document.getElementById('selection-toolbar');
         const countSpan = document.getElementById('selection-count');
+        const deleteBtn = document.getElementById('btn-delete-selected');
+        const restoreBtn = document.getElementById('btn-restore-selected');
+        const emptyTrashBtn = document.getElementById('btn-empty-trash');
+
+        if (deleteBtn) {
+            deleteBtn.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+                ${this.state.viewingTrash ? 'Delete Permanently' : 'Move to Trash'}
+            `;
+        }
+        if (restoreBtn) {
+            restoreBtn.classList.toggle('hidden', !this.state.viewingTrash || count === 0);
+        }
+        if (emptyTrashBtn) {
+            emptyTrashBtn.classList.toggle('hidden', !this.state.viewingTrash);
+        }
 
         // Update toolbar visibility
         if (toolbar) {
-            if (count > 0) {
+            if (count > 0 || this.state.viewingTrash) {
                 toolbar.classList.add('visible');
                 if (countSpan) countSpan.textContent = count;
             } else {
@@ -505,14 +597,18 @@ export class LibraryManager {
         const count = this.state.selectedItems.length;
         if (count === 0) return;
 
-        const confirmed = confirm(`Delete ${count} item${count > 1 ? 's' : ''}? This cannot be undone.`);
+        const permanent = this.state.viewingTrash;
+        const message = permanent
+            ? `Permanently delete ${count} item${count > 1 ? 's' : ''}? This cannot be undone.`
+            : `Move ${count} item${count > 1 ? 's' : ''} to Trash?`;
+        const confirmed = confirm(message);
         if (!confirmed) return;
 
         const docIds = this.state.selectedItems.filter(i => i.type === 'document').map(i => i.id);
         const folderIds = this.state.selectedItems.filter(i => i.type === 'folder').map(i => i.id);
 
         try {
-            await fetch('/library/delete-multiple', {
+            await fetch(permanent ? '/library/delete-multiple-permanent' : '/library/delete-multiple', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ doc_ids: docIds, folder_ids: folderIds })
@@ -520,9 +616,47 @@ export class LibraryManager {
 
             this.clearSelection();
             await this.load();
-            this.clara.ui.showToast(`Deleted ${count} item${count > 1 ? 's' : ''}`);
+            this.clara.ui.showToast(
+                permanent
+                    ? `Deleted ${count} item${count > 1 ? 's' : ''}`
+                    : `Moved ${count} item${count > 1 ? 's' : ''} to Trash`
+            );
         } catch (err) {
             this.clara.ui.showToast('Delete failed: ' + err.message, true);
+        }
+    }
+
+    async restoreSelected() {
+        if (!this.state.viewingTrash || this.state.selectedItems.length === 0) return;
+
+        const docIds = this.state.selectedItems.filter(i => i.type === 'document').map(i => i.id);
+        const folderIds = this.state.selectedItems.filter(i => i.type === 'folder').map(i => i.id);
+
+        try {
+            await Promise.all([
+                ...docIds.map(id => fetch(`/library/document/${id}/restore`, { method: 'POST' })),
+                ...folderIds.map(id => fetch(`/library/folder/${id}/restore`, { method: 'POST' }))
+            ]);
+
+            this.clearSelection();
+            await this.load();
+            this.clara.ui.showToast('Restored selected items');
+        } catch (err) {
+            this.clara.ui.showToast('Restore failed: ' + err.message, true);
+        }
+    }
+
+    async emptyTrash() {
+        if (!this.state.viewingTrash) return;
+        if (!confirm('Empty Trash permanently? This cannot be undone.')) return;
+
+        try {
+            await fetch('/library/empty-trash', { method: 'POST' });
+            this.clearSelection();
+            await this.load();
+            this.clara.ui.showToast('Trash emptied');
+        } catch (err) {
+            this.clara.ui.showToast('Failed to empty trash: ' + err.message, true);
         }
     }
 
@@ -592,16 +726,24 @@ export class LibraryManager {
 
     async deleteItem(id, type) {
         try {
-            const endpoint = type === 'folder' ? `/library/folder/${id}` : `/library/document/${id}`;
-            await fetch(endpoint, { method: 'DELETE' });
+            const permanent = this.state.viewingTrash;
+            const endpoint = permanent
+                ? (type === 'folder' ? `/library/folder/${id}` : `/library/document/${id}`)
+                : (type === 'folder' ? `/library/folder/${id}/trash` : `/library/document/${id}/trash`);
+            await fetch(endpoint, { method: permanent ? 'DELETE' : 'POST' });
             await this.load();
-            this.clara.ui.showToast(`${type === 'folder' ? 'Folder' : 'Document'} deleted`);
+            this.clara.ui.showToast(
+                permanent
+                    ? `${type === 'folder' ? 'Folder' : 'Document'} deleted`
+                    : `${type === 'folder' ? 'Folder' : 'Document'} moved to Trash`
+            );
         } catch (err) {
             this.clara.ui.showToast('Delete failed: ' + err.message, true);
         }
     }
 
     async moveDocument(docId, folderId) {
+        if (this.state.viewingTrash) return;
         try {
             await fetch(`/library/document/${docId}/move`, {
                 method: 'PUT',
@@ -616,6 +758,7 @@ export class LibraryManager {
     }
 
     async moveFolder(folderId, parentId) {
+        if (this.state.viewingTrash) return;
         try {
             await fetch(`/library/folder/${folderId}/move`, {
                 method: 'PUT',
@@ -624,6 +767,26 @@ export class LibraryManager {
             });
             await this.load();
             this.clara.ui.showToast('Folder moved');
+        } catch (err) {
+            this.clara.ui.showToast('Move failed: ' + err.message, true);
+        }
+    }
+
+    async moveDocumentToTrash(docId) {
+        try {
+            await fetch(`/library/document/${docId}/trash`, { method: 'POST' });
+            await this.load();
+            this.clara.ui.showToast('Document moved to Trash');
+        } catch (err) {
+            this.clara.ui.showToast('Move failed: ' + err.message, true);
+        }
+    }
+
+    async moveFolderToTrash(folderId) {
+        try {
+            await fetch(`/library/folder/${folderId}/trash`, { method: 'POST' });
+            await this.load();
+            this.clara.ui.showToast('Folder moved to Trash');
         } catch (err) {
             this.clara.ui.showToast('Move failed: ' + err.message, true);
         }

@@ -1137,6 +1137,20 @@ body {
     transition: all 0.15s ease-out;
 }
 
+.word-box.manual-selected {
+    background: rgba(74, 144, 226, 0.28);
+    border-radius: 3px;
+}
+
+.word-box.note-anchored {
+    background: rgba(59, 124, 255, 0.14);
+    border-radius: 3px;
+}
+
+.reading-mode .word-box.note-anchored.active {
+    background: var(--color-highlight-active) !important;
+}
+
 /* Sync pulse animation for current word (only in reading mode) */
 .reading-mode .word-box.sync-pulse {
     animation: syncPulse 1s ease-out;
@@ -1527,6 +1541,66 @@ body {
     margin-top: 10px;
 }
 
+.answer-sources {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--color-border-subtle, #e6eaf0);
+}
+
+.answer-sources.hidden {
+    display: none;
+}
+
+.answer-sources-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-secondary);
+    margin-bottom: 6px;
+}
+
+.answer-source-item {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 4px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--color-text-secondary);
+}
+
+.answer-source-index {
+    color: var(--color-accent);
+    font-weight: 600;
+}
+
+body.focus-mode #btn-study-session,
+body.focus-mode #btn-toggle-notes {
+    display: none;
+}
+
+body.focus-mode .question-section {
+    background: var(--color-bg-primary);
+}
+
+body.focus-mode .reading-controls {
+    box-shadow: none;
+    border-top: 1px solid var(--color-border-default);
+}
+
+body.focus-mode .btn-reading-control,
+body.focus-mode .btn-sync-reading,
+body.focus-mode .btn-stop-reading,
+body.focus-mode .btn-page-nav,
+body.focus-mode .btn-send,
+body.focus-mode .btn-resume,
+body.focus-mode .btn-save-note {
+    transition: none;
+}
+
+body.focus-mode .question-input {
+    font-size: 15px;
+}
+
 .btn-save-note {
     display: flex;
     align-items: center;
@@ -1715,6 +1789,16 @@ body {
     justify-content: space-between;
 }
 
+.note-anchor-kind {
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #2f5f9a;
+    background: rgba(74, 144, 226, 0.14);
+    border: 1px solid rgba(74, 144, 226, 0.2);
+}
+
 .note-card-goto-btn {
     background: transparent;
     border: none;
@@ -1812,6 +1896,49 @@ body {
     width: 10px;
     height: 10px;
     color: rgba(0,0,0,0.5);
+}
+
+.note-marker-tag {
+    position: absolute;
+    left: 50%;
+    top: calc(100% + 4px);
+    transform: translateX(-50%);
+    font-size: 9px;
+    font-weight: 700;
+    color: #264c78;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid rgba(38, 76, 120, 0.16);
+    border-radius: 999px;
+    padding: 1px 6px;
+    white-space: nowrap;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.note-marker:hover .note-marker-tag,
+.reading-mode .note-marker .note-marker-tag {
+    opacity: 1;
+}
+
+.note-marker.focus-pulse {
+    animation: notePulse 1.2s ease-out;
+}
+
+@keyframes notePulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(74, 144, 226, 0.55);
+        transform: scale(1);
+    }
+    45% {
+        box-shadow: 0 0 0 10px rgba(74, 144, 226, 0.05);
+        transform: scale(1.18);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(74, 144, 226, 0);
+        transform: scale(1);
+    }
 }
 
 /* ============================================
@@ -3929,41 +4056,66 @@ body {
 
 .pomodoro-btn {
     position: relative;
-    width: 48px;
-    height: 48px;
+    width: 34px;
+    height: 34px;
     padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
+    background: transparent !important;
+    border-radius: var(--radius-sm);
+    box-shadow: none !important;
+    border: none !important;
+    outline: none !important;
+    appearance: none;
+    -webkit-appearance: none;
 }
 
 .pomodoro-ring {
     position: absolute;
-    width: 36px;
-    height: 36px;
+    width: 24px;
+    height: 24px;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
+    opacity: 0.9;
 }
 
 .ring-bg {
-    /* Background ring - light gray, always visible */
+    stroke: transparent !important;
+    opacity: 0 !important;
 }
 
 .ring-progress {
-    /* Progress ring - fills as time progresses */
+    stroke: var(--color-text-secondary) !important;
     transition: stroke 0.3s ease, stroke-dasharray 0.5s linear;
+}
+
+.pomodoro-btn:hover,
+.pomodoro-btn:active,
+.pomodoro-btn:focus,
+.pomodoro-btn:focus-visible {
+    background: rgba(0, 0, 0, 0.05) !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+.pomodoro-btn:hover .pomodoro-time,
+.pomodoro-btn:focus-visible .pomodoro-time {
+    color: var(--color-accent);
 }
 
 .pomodoro-time {
     position: relative;
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--color-text-primary);
+    font-size: 7px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
     pointer-events: none;
     font-variant-numeric: tabular-nums;
-    letter-spacing: -0.3px;
+    letter-spacing: -0.2px;
     z-index: 2;
+    line-height: 1;
+    transform: translateY(0.2px);
 }
 
 /* Pomodoro dropdown */
@@ -3972,8 +4124,9 @@ body {
     top: calc(100% + 8px);
     right: 0;
     background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border-default);
     border-radius: var(--radius-md);
-    box-shadow: var(--shadow-lg);
+    box-shadow: 0 10px 30px rgba(36, 52, 74, 0.12);
     padding: 16px;
     min-width: 280px;
     z-index: 1000;
@@ -4015,6 +4168,7 @@ body {
     gap: 8px;
     padding: 16px;
     background: var(--color-bg-primary);
+    border: 1px solid var(--color-border-default);
     border-radius: var(--radius-sm);
 }
 
@@ -4076,7 +4230,7 @@ body {
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
-    transition: all var(--duration-fast) var(--ease-out);
+    transition: background var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -4093,33 +4247,32 @@ body {
 }
 
 .start-btn {
-    background: var(--color-success);
+    background: var(--color-accent);
     color: white;
 }
 
 .start-btn:hover {
-    background: #28A745;
-    transform: translateY(-1px);
+    background: var(--color-accent-hover);
 }
 
 .pause-btn {
-    background: var(--color-warning);
-    color: white;
+    background: transparent;
+    border: 1px solid var(--color-border-default);
+    color: var(--color-text-primary);
 }
 
 .pause-btn:hover {
-    background: #FF8C00;
-    transform: translateY(-1px);
+    background: var(--color-bg-primary);
 }
 
 .stop-btn {
-    background: var(--color-error);
-    color: white;
+    background: transparent;
+    border: 1px solid var(--color-border-default);
+    color: var(--color-text-primary);
 }
 
 .stop-btn:hover {
-    background: #FF1A1A;
-    transform: translateY(-1px);
+    background: var(--color-bg-primary);
 }
 
 /* Preset buttons */
@@ -4152,68 +4305,68 @@ body {
 
 /* Timer running state */
 .pomodoro-btn.running .pomodoro-time {
-    color: #FF3B30;
-    font-weight: 800;
+    color: var(--color-text-primary);
+    font-weight: 700;
 }
 
 .pomodoro-btn.paused .pomodoro-time {
-    color: var(--color-warning);
+    color: var(--color-text-secondary);
 }
 
 .pomodoro-btn.completed .pomodoro-time {
-    color: #34C759;
-    font-weight: 900;
+    color: var(--color-text-primary);
+    font-weight: 700;
 }
 
 /* Psychological state animations */
 
 /* Running - gentle pulse to show activity */
 .pomodoro-btn.running .pomodoro-fill {
-    animation: gentle-pulse 2s ease-in-out infinite;
+    animation: gentle-pulse 2.2s ease-in-out infinite;
 }
 
 @keyframes gentle-pulse {
     0%, 100% {
-        filter: drop-shadow(0 0 4px rgba(255, 59, 48, 0.5));
+        filter: drop-shadow(0 0 2px rgba(74, 144, 226, 0.18));
     }
     50% {
-        filter: drop-shadow(0 0 8px rgba(255, 59, 48, 0.8));
+        filter: drop-shadow(0 0 4px rgba(74, 144, 226, 0.32));
     }
 }
 
 /* 75-90% - "Don't quit now!" urgency */
 .pomodoro-btn.almost-complete .pomodoro-fill {
-    stroke: #FF6B00 !important;
-    animation: urgency-pulse 0.8s ease-in-out infinite;
+    stroke: var(--color-accent) !important;
+    animation: urgency-pulse 1.1s ease-in-out infinite;
 }
 
 @keyframes urgency-pulse {
     0%, 100% {
-        filter: drop-shadow(0 0 8px rgba(255, 107, 0, 0.7));
+        filter: drop-shadow(0 0 3px rgba(74, 144, 226, 0.24));
     }
     50% {
-        filter: drop-shadow(0 0 16px rgba(255, 107, 0, 1));
+        filter: drop-shadow(0 0 5px rgba(74, 144, 226, 0.36));
     }
 }
 
 /* 90-100% - "FINISH IT!" maximum urgency */
 .pomodoro-btn.final-push .pomodoro-fill {
-    stroke: #FF3B30 !important;
-    animation: final-urgency 0.5s ease-in-out infinite;
+    stroke: var(--color-accent) !important;
+    animation: final-urgency 0.8s ease-in-out infinite;
 }
 
 @keyframes final-urgency {
     0%, 100% {
-        filter: drop-shadow(0 0 12px rgba(255, 59, 48, 1));
+        filter: drop-shadow(0 0 4px rgba(74, 144, 226, 0.24));
     }
     50% {
-        filter: drop-shadow(0 0 20px rgba(255, 107, 0, 1));
+        filter: drop-shadow(0 0 7px rgba(74, 144, 226, 0.42));
     }
 }
 
 /* COMPLETED - DOPAMINE EXPLOSION! */
 .pomodoro-btn.completed {
-    animation: completion-bounce 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    animation: completion-bounce 0.35s ease-out;
 }
 
 @keyframes completion-bounce {
@@ -4235,16 +4388,16 @@ body {
 }
 
 .pomodoro-btn.completed .pomodoro-fill {
-    stroke: #34C759 !important;
-    animation: completion-glow 1.5s ease-in-out infinite;
+    stroke: var(--color-accent) !important;
+    animation: completion-glow 1.6s ease-in-out infinite;
 }
 
 @keyframes completion-glow {
     0%, 100% {
-        filter: drop-shadow(0 0 10px rgba(52, 199, 89, 0.8));
+        filter: drop-shadow(0 0 4px rgba(74, 144, 226, 0.24));
     }
     50% {
-        filter: drop-shadow(0 0 24px rgba(52, 199, 89, 1));
+        filter: drop-shadow(0 0 7px rgba(74, 144, 226, 0.4));
     }
 }
 

@@ -1,0 +1,26 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="lineGlow" x="120" y="280" width="784" height="464" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+      <feGaussianBlur stdDeviation="18" result="effect1_foregroundBlur"/>
+    </filter>
+    <linearGradient id="lineBlue" x1="220" y1="330" x2="790" y2="700" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7FB7FF"/>
+      <stop offset="1" stop-color="#4D86CF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Transparent background, line-only dock icon -->
+  <g opacity="0.95">
+    <rect x="220" y="332" width="584" height="52" rx="26" fill="url(#lineBlue)"/>
+    <rect x="220" y="456" width="508" height="52" rx="26" fill="url(#lineBlue)"/>
+    <rect x="220" y="580" width="562" height="52" rx="26" fill="url(#lineBlue)"/>
+  </g>
+
+  <!-- Active highlighted line -->
+  <g filter="url(#lineGlow)">
+    <rect x="318" y="456" width="230" height="52" rx="26" fill="#FFD56A"/>
+  </g>
+  <rect x="318" y="456" width="230" height="52" rx="26" fill="#FFD56A"/>
+</svg>

@@ -5,6 +5,7 @@ export class NotesManager {
     constructor(clara) {
         this.clara = clara;
         this.state = clara.state;
+        this.pendingNewNoteDraft = null;
     }
 
     setup() {
@@ -107,6 +108,7 @@ export class NotesManager {
                 ${note.question ? `<div class="note-card-answer">${this.clara.ui.escapeHtml(note.question)}</div>` : ''}
                 <div class="note-card-meta">
                     <span>Page ${note.page_num + 1}</span>
+                    <span class="note-anchor-kind">${this.formatAnchorType(note.anchor_type)}</span>
                     <button class="note-card-goto-btn" title="Go to Note Location" onclick="event.stopPropagation();">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M5 12h14M12 5l7 7-7 7"/>
@@ -151,8 +153,124 @@ export class NotesManager {
         }
     }
 
+    formatAnchorType(anchorType) {
+        const type = String(anchorType || '').toLowerCase();
+        if (type.includes('figure') || type.includes('image')) return 'Figure';
+        if (type.includes('word')) return 'Word';
+        if (type.includes('sentence')) return 'Sentence';
+        if (type.includes('paragraph')) return 'Paragraph';
+        if (type.includes('ai')) return 'AI';
+        if (type.includes('manual')) return 'Note';
+        return 'Selection';
+    }
+
+    detectAnchorTypeFromText(text) {
+        const value = String(text || '').trim();
+        if (!value) return 'manual';
+
+        const wordCount = value.split(/\s+/).filter(Boolean).length;
+        const hasLineBreak = /\n/.test(value);
+        const hasSentencePunctuation = /[.!?]["')\]]?$/.test(value);
+
+        if (wordCount <= 1) return 'word';
+        if (hasLineBreak || wordCount > 40 || value.length > 220) return 'paragraph';
+        if (hasSentencePunctuation && wordCount >= 4) return 'sentence';
+        return 'selection';
+    }
+
+    clampPercent(value) {
+        return Math.max(0, Math.min(100, value));
+    }
+
+    getActivePageContainer() {
+        const pageNum = this.state.viewerCurrentPage;
+        const continuousPage = document.getElementById(`page-${pageNum}`);
+        if (continuousPage) {
+            return continuousPage.querySelector('.page-image-wrapper') || continuousPage;
+        }
+        return document.querySelector('.page-image-wrapper') || document.getElementById('page-content');
+    }
+
+    getClosestWordIndexAtPosition(x, y) {
+        if (!this.state.words || this.state.words.length === 0) return -1;
+
+        let closestIndex = -1;
+        let closestDistance = Infinity;
+        for (let i = 0; i < this.state.words.length; i++) {
+            const word = this.state.words[i];
+            if (word.x === undefined || word.y === undefined || word.w === undefined || word.h === undefined) {
+                continue;
+            }
+
+            if (x >= word.x && x <= word.x + word.w && y >= word.y && y <= word.y + word.h) {
+                return i;
+            }
+
+            const centerX = word.x + word.w / 2;
+            const centerY = word.y + word.h / 2;
+            const distance = Math.hypot(x - centerX, y - centerY);
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                closestIndex = i;
+            }
+        }
+
+        return closestDistance < 12 ? closestIndex : -1;
+    }
+
+    getAnchorFromSelection(wordIndex, selectedText = '', anchorPoint = null) {
+        const text = String(selectedText || '').trim();
+        const anchor = {
+            anchor_text: text,
+            anchor_type: this.detectAnchorTypeFromText(text),
+            anchor_x: null,
+            anchor_y: null
+        };
+
+        if (anchorPoint && Number.isFinite(anchorPoint.x) && Number.isFinite(anchorPoint.y)) {
+            anchor.anchor_x = this.clampPercent(anchorPoint.x);
+            anchor.anchor_y = this.clampPercent(anchorPoint.y);
+            if (!anchor.anchor_text) {
+                anchor.anchor_type = 'figure';
+            }
+        }
+
+        const container = this.getActivePageContainer();
+        const selection = window.getSelection();
+        if (container && selection && selection.rangeCount > 0 && text.length > 0) {
+            const rect = selection.getRangeAt(0).getBoundingClientRect();
+            const containerRect = container.getBoundingClientRect();
+            if (containerRect.width > 0 && containerRect.height > 0 && rect.width > 0 && rect.height > 0) {
+                anchor.anchor_x = this.clampPercent(((rect.left + rect.width / 2 - containerRect.left) / containerRect.width) * 100);
+                anchor.anchor_y = this.clampPercent(((rect.top + rect.height / 2 - containerRect.top) / containerRect.height) * 100);
+            }
+        }
+
+        if ((anchor.anchor_x === null || anchor.anchor_y === null) && Number.isInteger(wordIndex) && this.state.words[wordIndex]) {
+            const word = this.state.words[wordIndex];
+            if (word.x !== undefined && word.y !== undefined) {
+                anchor.anchor_x = this.clampPercent(word.x + (word.w || 0) / 2);
+                anchor.anchor_y = this.clampPercent(word.y + (word.h || 0) / 2);
+                anchor.anchor_text = anchor.anchor_text || word.text || '';
+                anchor.anchor_type = anchor.anchor_text ? this.detectAnchorTypeFromText(anchor.anchor_text) : 'word';
+            }
+        }
+
+        if (anchor.anchor_x === null || anchor.anchor_y === null) {
+            anchor.anchor_x = 50;
+            anchor.anchor_y = 30;
+        }
+
+        if (!anchor.anchor_text) {
+            anchor.anchor_type = 'manual';
+        }
+
+        return anchor;
+    }
+
     renderMarkers() {
         document.querySelectorAll('.note-marker').forEach(m => m.remove());
+        this.renderAnchoredHighlights();
 
         if (!this.state.isPdf) return;
 
@@ -186,6 +304,7 @@ export class NotesManager {
                         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                         <polyline points="14 2 14 8 20 8"/>
                     </svg>
+                    <span class="note-marker-tag">${this.formatAnchorType(note.anchor_type)}</span>
                 `;
 
                 marker.addEventListener('click', (e) => {
@@ -195,9 +314,48 @@ export class NotesManager {
                     }
                 });
 
+                marker.addEventListener('dblclick', async (e) => {
+                    if (this.state.draggingNote) return;
+                    e.stopPropagation();
+                    if (!this.state.isReadingMode) return;
+                    const wordIndex = this.getClosestWordIndexAtPosition(note.anchor_x, note.anchor_y);
+                    if (wordIndex >= 0) {
+                        await this.clara.reading.readFromWord(wordIndex);
+                    }
+                });
+
                 this.setupMarkerDrag(marker, note, container);
 
                 container.appendChild(marker);
+            }
+        });
+    }
+
+    renderAnchoredHighlights() {
+        const boxes = document.querySelectorAll('.word-box');
+        boxes.forEach(box => box.classList.remove('note-anchored'));
+
+        if (!this.state.words || this.state.words.length === 0) return;
+        if (!this.state.notes || this.state.notes.length === 0) return;
+
+        const pageNotes = this.state.notes.filter(
+            n => n.page_num === this.state.viewerCurrentPage && n.anchor_text
+        );
+        if (pageNotes.length === 0) return;
+
+        const anchoredWords = new Set(
+            pageNotes
+                .flatMap(note => String(note.anchor_text).split(/\s+/))
+                .map(w => w.trim().toLowerCase().replace(/[^\w'-]/g, ''))
+                .filter(Boolean)
+        );
+        if (anchoredWords.size === 0) return;
+
+        this.state.words.forEach((word, idx) => {
+            const normalized = String(word?.text || '').toLowerCase().replace(/[^\w'-]/g, '');
+            if (!normalized || !anchoredWords.has(normalized)) return;
+            if (this.clara.reading.wordBoxes[idx]) {
+                this.clara.reading.wordBoxes[idx].classList.add('note-anchored');
             }
         });
     }
@@ -387,8 +545,9 @@ export class NotesManager {
         }
     }
 
-    openModal(note) {
+    openModal(note, draft = null) {
         this.state.currentNote = note;
+        this.pendingNewNoteDraft = note ? null : (draft || this.pendingNewNoteDraft);
 
         const modal = document.getElementById('note-modal');
         const title = document.getElementById('note-modal-title');
@@ -428,14 +587,23 @@ export class NotesManager {
                 }
             });
         } else {
-            contentInput.value = '';
+            const pending = this.pendingNewNoteDraft || {};
+            contentInput.value = pending.content || '';
             pageNum.textContent = this.state.viewerCurrentPage + 1;
             questionDiv.classList.add('hidden');
-            anchorDiv.classList.add('hidden');
+            if (pending.anchor_text) {
+                anchorDiv.classList.remove('hidden');
+                anchorText.textContent = pending.anchor_text;
+            } else if (pending.anchor_type === 'figure') {
+                anchorDiv.classList.remove('hidden');
+                anchorText.textContent = 'Figure/Image area';
+            } else {
+                anchorDiv.classList.add('hidden');
+            }
 
             document.querySelectorAll('.color-dot').forEach(dot => {
                 dot.classList.remove('active');
-                if (dot.dataset.color === '#FFE066') {
+                if (dot.dataset.color === (pending.color || '#FFE066')) {
                     dot.classList.add('active');
                 }
             });
@@ -448,6 +616,7 @@ export class NotesManager {
     hideModal() {
         document.getElementById('note-modal').classList.add('hidden');
         this.state.currentNote = null;
+        this.pendingNewNoteDraft = null;
     }
 
     async save() {
@@ -488,6 +657,44 @@ export class NotesManager {
             } catch (err) {
                 this.clara.ui.showToast('Failed to update note: ' + err.message, true);
             }
+        } else {
+            try {
+                const pending = this.pendingNewNoteDraft || {};
+                const anchorData = {
+                    anchor_type: pending.anchor_type || 'manual',
+                    anchor_text: pending.anchor_text || null,
+                    anchor_x: pending.anchor_x,
+                    anchor_y: pending.anchor_y
+                };
+                const res = await fetch(`/document/${this.state.viewerDocId}/notes`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        content,
+                        page_num: this.state.viewerCurrentPage,
+                        anchor_type: anchorData.anchor_type || 'manual',
+                        anchor_text: anchorData.anchor_text,
+                        anchor_x: anchorData.anchor_x,
+                        anchor_y: anchorData.anchor_y,
+                        color
+                    })
+                });
+
+                const data = await res.json();
+                if (data.error) {
+                    this.clara.ui.showToast(data.error, true);
+                    return;
+                }
+
+                this.state.notes.push(data);
+                this.renderList();
+                this.updateBadge();
+                this.renderMarkers();
+                this.hideModal();
+                this.clara.ui.showToast('Note saved');
+            } catch (err) {
+                this.clara.ui.showToast('Failed to save note: ' + err.message, true);
+            }
         }
     }
 
@@ -512,58 +719,77 @@ export class NotesManager {
         }
     }
 
-    goToNotePage(note) {
+    async focusNoteMarker(noteId) {
+        for (let attempt = 0; attempt < 8; attempt++) {
+            this.renderMarkers();
+            const marker = document.querySelector(`.note-marker[data-note-id="${noteId}"]`);
+            if (marker) {
+                marker.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+                marker.classList.add('focus-pulse');
+                setTimeout(() => marker.classList.remove('focus-pulse'), 1200);
+                return true;
+            }
+            await new Promise(resolve => setTimeout(resolve, 120));
+        }
+        return false;
+    }
+
+    scrollToNoteAnchor(note) {
+        const docDisplay = document.getElementById('document-display');
+        const page = document.getElementById(`page-${note.page_num}`);
+        if (!docDisplay || !page) return;
+
+        const pageBody = page.querySelector('.page-image-wrapper') || page;
+        const pageHeight = pageBody.clientHeight || page.clientHeight;
+        const anchorY = Number.isFinite(note.anchor_y) ? note.anchor_y : 50;
+        const offsetWithinPage = (anchorY / 100) * pageHeight;
+        const targetTop = page.offsetTop + offsetWithinPage - (docDisplay.clientHeight * 0.35);
+        docDisplay.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+    }
+
+    async goToNotePage(note) {
         if (!note || note.page_num === null || note.page_num === undefined) return;
 
         const pageNum = note.page_num;
         this.clara.viewer.goToPage(pageNum);
-        this.clara.ui.showToast(`Navigated to page ${pageNum + 1}`);
-    }
 
-    async createWithText(initialText) {
-        try {
-            const res = await fetch(`/document/${this.state.viewerDocId}/notes`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    content: `"${initialText}"\n\n`,
-                    page_num: this.state.viewerCurrentPage,
-                    anchor_type: 'selection',
-                    anchor_text: initialText,
-                    anchor_x: 50,
-                    anchor_y: 50
-                })
-            });
-
-            const data = await res.json();
-            if (data.error) {
-                this.clara.ui.showToast(data.error, true);
-                return;
-            }
-
-            await this.load();
-            if (data.note) {
-                this.openModal(data.note);
-            }
-            this.clara.ui.showToast('Note created');
-        } catch (err) {
-            this.clara.ui.showToast('Failed to create note', true);
+        const found = await this.focusNoteMarker(note.id);
+        if (!found) {
+            this.scrollToNoteAnchor(note);
+            await this.focusNoteMarker(note.id);
         }
+
+        this.clara.ui.showToast(`Navigated to note on page ${pageNum + 1}`);
     }
 
-    addFromSelection(wordIndex, selectedText) {
+    async createWithText(initialText, anchor = null) {
+        const anchorData = anchor || this.getAnchorFromSelection(null, initialText);
+        const initialContent = initialText ? `"${initialText}"\n\n` : '';
+
+        this.openModal(null, {
+            content: initialContent,
+            color: '#FFE066',
+            anchor_type: anchorData.anchor_type || 'selection',
+            anchor_text: anchorData.anchor_text || initialText || null,
+            anchor_x: anchorData.anchor_x,
+            anchor_y: anchorData.anchor_y
+        });
+    }
+
+    addFromSelection(wordIndex, selectedText, anchorPoint = null) {
         let noteText = selectedText;
 
         if (!noteText && wordIndex !== null && this.state.words[wordIndex]) {
             noteText = this.state.words[wordIndex].text;
         }
 
-        if (!noteText) {
+        const anchorData = this.getAnchorFromSelection(wordIndex, noteText, anchorPoint);
+        if (!noteText && anchorData.anchor_type !== 'figure') {
             this.clara.ui.showToast('No text selected for note', true);
             return;
         }
 
         this.showSidebar();
-        this.createWithText(noteText);
+        this.createWithText(noteText, anchorData);
     }
 }

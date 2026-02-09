@@ -8,6 +8,7 @@ export class ReadingManager {
         this.audio = null;
         this.wordTimings = [];
         this.pendingWordIndex = null;
+        this.forceStartPage = null;
 
         // Performance: Cache word box references
         this.wordBoxes = [];
@@ -33,10 +34,16 @@ export class ReadingManager {
         this.currentChunkIndex = 0;
         this.totalChunks = 0;
         this.isLoadingChunks = false;
+        this.readFromCommandId = 0;
 
         // Timing correction
         this.lastTimingCheck = 0;
         this.timingDriftCorrection = 0;
+        this.manualSelection = {
+            active: false,
+            start: null,
+            end: null
+        };
     }
 
     setup() {
@@ -55,6 +62,8 @@ export class ReadingManager {
             this.state.playbackSpeed = parseFloat(e.target.value);
             if (this.audio) {
                 this.audio.playbackRate = this.state.playbackSpeed;
+                // CRITICAL: Validate position after speed change
+                this.validateAndCorrectPosition();
             }
         });
 
@@ -103,25 +112,27 @@ export class ReadingManager {
         this.syncRAF = null;
 
         this.audio.addEventListener('play', () => {
+            console.log('[Audio] Play event - starting sync');
+            this.state.isPlaying = true;
+            this.updatePlayPauseButton();
             this.startAnimationFrameSync();
         });
 
         this.audio.addEventListener('pause', () => {
+            console.log('[Audio] Pause event');
+            this.state.isPlaying = false;
+            this.updatePlayPauseButton();
             this.stopAnimationFrameSync();
         });
 
         this.audio.addEventListener('ended', () => {
+            console.log('[Audio] Ended event');
             this.stopAnimationFrameSync();
         });
 
-        this.audio.addEventListener('play', () => {
-            this.state.isPlaying = true;
-            this.updatePlayPauseButton();
-        });
-
-        this.audio.addEventListener('pause', () => {
-            this.state.isPlaying = false;
-            this.updatePlayPauseButton();
+        this.audio.addEventListener('error', (e) => {
+            console.error('[Audio] Error:', e);
+            this.clara.ui.showToast('Audio playback error', true);
         });
 
         // Detect user manual scrolling during reading mode
@@ -158,26 +169,68 @@ export class ReadingManager {
                 }
             }
         });
+
+        document.addEventListener('mouseup', () => {
+            if (!this.manualSelection.active) return;
+            this.manualSelection.active = false;
+        });
+    }
+
+    clearManualSelection() {
+        this.wordBoxes.forEach(box => box.classList.remove('manual-selected'));
+        this.manualSelection.start = null;
+        this.manualSelection.end = null;
+    }
+
+    getManualSelectionText() {
+        if (this.manualSelection.start === null || this.manualSelection.end === null) return '';
+        const start = Math.min(this.manualSelection.start, this.manualSelection.end);
+        const end = Math.max(this.manualSelection.start, this.manualSelection.end);
+        return this.state.words.slice(start, end + 1).map(w => w.text).join(' ').trim();
+    }
+
+    renderManualSelectionRange() {
+        if (this.manualSelection.start === null || this.manualSelection.end === null) return;
+        const start = Math.min(this.manualSelection.start, this.manualSelection.end);
+        const end = Math.max(this.manualSelection.start, this.manualSelection.end);
+
+        this.wordBoxes.forEach((box, idx) => {
+            box.classList.toggle('manual-selected', idx >= start && idx <= end);
+        });
     }
 
     async start() {
         this.clara.ui.showInlineLoading('Preparing to read...');
 
         try {
+            // Always sync to the page currently visible in the viewport before reading.
+            if (document.querySelector('.continuous-pages-container')) {
+                if (this.forceStartPage !== null && this.forceStartPage !== undefined) {
+                    this.state.viewerCurrentPage = this.forceStartPage;
+                } else {
+                    this.clara.viewer.updateCurrentPageFromScroll();
+                }
+                this.clara.viewer.updatePageIndicator();
+                this.clara.viewer.setActiveThumbnail(this.state.viewerCurrentPage);
+            }
+
+            // RESET STATE for fresh start
+            this.wordBoxes = [];
+            this.wordTimings = [];
+            this.lastHighlightedIndex = -1;
+            this.lastTimingCheck = 0;
+
             const hasSession = this.hasSession(this.state.viewerDocId, this.state.viewerCurrentPage);
 
             if (hasSession) {
                 this.restoreSession();
             } else {
-                // Fetch BOTH words (for positioning) AND text (for TTS with proper punctuation)
+                // Fetch words for positioning
                 const wordsRes = await fetch(`/document/${this.state.viewerDocId}/page/${this.state.viewerCurrentPage}/words`);
-                const textRes = await fetch(`/document/${this.state.viewerDocId}/page/${this.state.viewerCurrentPage}/text`);
-
                 const wordsData = await wordsRes.json();
-                const textData = await textRes.json();
 
-                if (wordsData.error || textData.error) {
-                    this.clara.ui.showToast(wordsData.error || textData.error, true);
+                if (wordsData.error) {
+                    this.clara.ui.showToast(wordsData.error, true);
                     this.clara.ui.hideInlineLoading();
                     return;
                 }
@@ -185,28 +238,27 @@ export class ReadingManager {
                 this.state.currentDocId = this.state.viewerDocId;
                 this.state.currentDocName = this.state.viewerDocName;
 
-                // Use ACTUAL text with punctuation for TTS (proper flow, tone, pauses)
-                this.state.pageText = textData.text || '';
-
                 // Use words for positioning overlay (exact coordinates)
                 if (wordsData.words && wordsData.words.length > 0) {
                     this.state.words = wordsData.words;
                 } else {
-                    // Fallback: tokenize text if word extraction failed
-                    this.state.words = this.tokenizeText(this.state.pageText);
+                    this.clara.ui.showToast('No text found on this page', true);
+                    this.clara.ui.hideInlineLoading();
+                    return;
                 }
 
+                // CRITICAL: Build page text from words to ensure 1:1 match
+                this.state.pageText = this.state.words.map(w => w.text).join(' ');
+
+                // Always start from beginning unless resuming
                 this.state.currentWordIndex = this.pendingWordIndex || 0;
             }
 
-            // START AUDIO GENERATION EARLY (don't await yet)
-            // This runs in parallel while we set up the UI
-            this.clara.ui.showInlineLoading('Generating audio...');
-            const audioPromise = this.generateAudioInBackground();
+            console.log('[Reading] Starting with', this.state.words.length, 'words');
 
-            // Set up UI while audio generates in background
+            // Set up UI first
             this.enterReadingMode();
-            this.createWordOverlay(); // Synchronous, fast
+            await this.createWordOverlay();
 
             if (hasSession) {
                 this.applyReadWordsFromSession();
@@ -215,12 +267,16 @@ export class ReadingManager {
             this.updateProgress();
             this.updatePageNav();
 
-            // NOW wait for audio to be ready
-            await audioPromise;
+            // Generate audio and start playback
+            this.clara.ui.showInlineLoading('Generating audio...');
+            await this.generateAudioInBackground();
+            this.forceStartPage = null;
 
         } catch (err) {
+            console.error('[Reading] Start failed:', err);
             this.clara.ui.showToast('Failed to start reading: ' + err.message, true);
             this.clara.ui.hideInlineLoading();
+            this.forceStartPage = null;
         }
     }
 
@@ -231,39 +287,11 @@ export class ReadingManager {
             return;
         }
 
-        const MAX_WORDS = 500;
-        let textToRead = this.state.pageText; // ALWAYS use proper text with punctuation
-        let wordsToHighlight = this.state.words;
-        const wordCount = Math.min(this.state.words.length, MAX_WORDS);
+        // SIMPLE: Always use word text directly - no complex pageText handling
+        const textToRead = this.state.words.map(w => w.text).join(' ');
+        const wordCount = this.state.words.length;
 
-        // Show informative loading based on text size
-        if (wordCount > 300) {
-            this.clara.ui.showInlineLoading(`Generating audio (${wordCount} words)...`);
-        } else {
-            this.clara.ui.showInlineLoading('Generating audio...');
-        }
-
-        if (this.state.words.length > MAX_WORDS) {
-            // Limit word highlighting but KEEP proper text for TTS
-            wordsToHighlight = this.state.words.slice(0, MAX_WORDS);
-            // Find approximate character position of 500th word to truncate text
-            // This preserves punctuation while limiting audio length
-            const charsPerWord = this.state.pageText.length / this.state.words.length;
-            const approxCharLimit = Math.floor(MAX_WORDS * charsPerWord);
-
-            // Find sentence boundary near limit (prefer ending at . ! ?)
-            let truncateAt = approxCharLimit;
-            const sentenceEnd = /[.!?]\s/g;
-            let match;
-            while ((match = sentenceEnd.exec(this.state.pageText)) !== null) {
-                if (match.index > approxCharLimit - 100 && match.index < approxCharLimit + 100) {
-                    truncateAt = match.index + 2; // Include punctuation and space
-                    break;
-                }
-            }
-
-            textToRead = this.state.pageText.substring(0, truncateAt);
-        }
+        console.log('[AudioGen] Generating for', wordCount, 'words');
 
         try {
             const res = await fetch('/play-text', {
@@ -288,30 +316,35 @@ export class ReadingManager {
             this.audio.src = url;
             this.audio.playbackRate = this.state.playbackSpeed;
 
-            // Temporarily use limited words for timing
-            const originalWords = this.state.words;
-            this.state.words = wordsToHighlight;
-
+            // Fetch word timings from backend
             await this.fetchActualWordTimings();
 
-            this.state.words = originalWords;
+            console.log('[AudioGen] Got', this.wordTimings.length, 'timings for', this.state.words.length, 'words');
 
             // Resume from saved position if needed
             const resumeWordIndex = this.state.currentWordIndex;
-            if (resumeWordIndex > 0 && resumeWordIndex < wordsToHighlight.length && this.wordTimings.length > resumeWordIndex) {
+            if (resumeWordIndex > 0 && resumeWordIndex < this.wordTimings.length) {
                 const timing = this.wordTimings[resumeWordIndex];
                 if (timing) {
+                    console.log('[AudioGen] Resuming from word', resumeWordIndex);
                     this.audio.currentTime = timing.start;
                 }
             }
 
+            // START PLAYBACK
             this.audio.play();
             this.clara.ui.hideInlineLoading();
+
+            // Highlight first word immediately
+            if (this.state.currentWordIndex === 0 && this.wordBoxes.length > 0) {
+                this.highlightWord(0);
+            }
 
             // Preload next page
             this.preloadNextPageAudio();
 
         } catch (err) {
+            console.error('[AudioGen] Failed:', err);
             this.clara.ui.showToast('Playback failed: ' + err.message, true);
             this.clara.ui.hideInlineLoading();
         }
@@ -334,11 +367,18 @@ export class ReadingManager {
             this.pause();
         }
 
+        // CRITICAL: Complete cleanup
         this.stopAnimationFrameSync();
         this.state.isReadingMode = false;
+        this.state.isPlaying = false;
         this.clearPreloadedAudio();
+
+        // Reset all sync state
         this.wordBoxes = [];
+        this.wordTimings = [];
         this.lastHighlightedIndex = -1;
+        this.lastTimingCheck = 0;
+        this.state.currentWordIndex = 0;
 
         // Clean up the reading wrapper
         this.cleanupReadingWrapper();
@@ -359,6 +399,9 @@ export class ReadingManager {
 
         this.saveSession();
 
+        // CRITICAL: Stop all sync before page change
+        this.stopAnimationFrameSync();
+
         if (this.state.isPlaying) {
             this.audio.pause();
         }
@@ -367,8 +410,11 @@ export class ReadingManager {
         const oldPageNum = this.state.viewerCurrentPage;
         const oldWrapper = document.querySelector(`.page-image-wrapper.reading-mode[data-reading-page="${oldPageNum}"]`);
 
+        // CRITICAL: Complete state reset for new page
         this.wordBoxes = [];
+        this.wordTimings = [];
         this.lastHighlightedIndex = -1;
+        this.lastTimingCheck = 0;
 
         this.state.viewerCurrentPage++;
 
@@ -376,13 +422,8 @@ export class ReadingManager {
         // loadPage will handle scrolling without reloading
         await this.clara.viewer.loadPage(this.state.viewerCurrentPage);
 
-        document.querySelectorAll('.page-thumb').forEach(el => {
-            el.classList.remove('active');
-            if (parseInt(el.dataset.page) === this.state.viewerCurrentPage) {
-                el.classList.add('active');
-                el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }
-        });
+        this.clara.viewer.updatePageIndicator();
+        this.clara.viewer.setActiveThumbnail(this.state.viewerCurrentPage);
 
         this.state.readingSession = null;
         this.state.currentWordIndex = 0;
@@ -465,12 +506,13 @@ export class ReadingManager {
         this.state.pageText = this.preloadedAudio.pageText;
         this.state.isReadingMode = true;
         this.state.currentWordIndex = 0;
+        this.lastHighlightedIndex = -1;
 
         document.getElementById('browse-controls').classList.add('hidden');
         document.getElementById('reading-controls').classList.remove('hidden');
         document.getElementById('question-section').classList.remove('hidden');
 
-        this.createWordOverlay();
+        await this.createWordOverlay();
 
         this.updatePageNav();
         this.clara.navigation.updateTitle();
@@ -479,7 +521,10 @@ export class ReadingManager {
         this.audio.src = url;
         this.audio.playbackRate = this.state.playbackSpeed;
 
-        await this.estimateWordTimings();
+        // CRITICAL: Use ACTUAL timings for preloaded audio, not estimation
+        // This ensures perfect sync even on preloaded pages
+        await this.fetchActualWordTimings();
+
         this.audio.play();
 
         this.clearPreloadedAudio();
@@ -494,6 +539,9 @@ export class ReadingManager {
 
         this.saveSession();
 
+        // CRITICAL: Stop all sync before page change
+        this.stopAnimationFrameSync();
+
         if (this.state.isPlaying) {
             this.audio.pause();
         }
@@ -502,8 +550,11 @@ export class ReadingManager {
         const oldPageNum = this.state.viewerCurrentPage;
         const oldWrapper = document.querySelector(`.page-image-wrapper.reading-mode[data-reading-page="${oldPageNum}"]`);
 
+        // CRITICAL: Complete state reset for new page
         this.wordBoxes = [];
+        this.wordTimings = [];
         this.lastHighlightedIndex = -1;
+        this.lastTimingCheck = 0;
 
         this.state.viewerCurrentPage--;
 
@@ -511,13 +562,8 @@ export class ReadingManager {
         // loadPage will handle scrolling without reloading
         await this.clara.viewer.loadPage(this.state.viewerCurrentPage);
 
-        document.querySelectorAll('.page-thumb').forEach(el => {
-            el.classList.remove('active');
-            if (parseInt(el.dataset.page) === this.state.viewerCurrentPage) {
-                el.classList.add('active');
-                el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }
-        });
+        this.clara.viewer.updatePageIndicator();
+        this.clara.viewer.setActiveThumbnail(this.state.viewerCurrentPage);
 
         // Start new page FIRST, then cleanup old
         await this.start();
@@ -539,7 +585,7 @@ export class ReadingManager {
         nextBtn.disabled = this.state.viewerCurrentPage >= this.state.viewerPageCount - 1;
     }
 
-    createWordOverlay() {
+    async createWordOverlay() {
         // Clean up existing reading wrapper (not browse wrappers)
         const existingWrapper = document.querySelector('.page-image-wrapper.reading-mode');
         if (existingWrapper) {
@@ -548,10 +594,6 @@ export class ReadingManager {
 
         this.wordBoxes = [];
         this.lastHighlightedIndex = -1;
-
-        if (!this.state.isPdf) {
-            return;
-        }
 
         // Find the correct page - either in continuous mode or single page mode
         let pageContainer, img;
@@ -570,9 +612,21 @@ export class ReadingManager {
         }
 
         if (!img) {
-            console.warn('No image found for word overlay on page', currentPageNum);
+            console.warn('[Overlay] No image found for word overlay on page', currentPageNum);
             return;
         }
+
+        // Ensure image is loaded before measuring - CSS percentages need correct container size
+        if (!img.complete || img.naturalWidth === 0) {
+            console.log('[Overlay] Waiting for image to load...');
+            await new Promise(resolve => {
+                img.onload = resolve;
+                // Fallback timeout
+                setTimeout(resolve, 1000);
+            });
+        }
+
+        console.log(`[Overlay] Image natural size: ${img.naturalWidth}x${img.naturalHeight}, displayed: ${img.clientWidth}x${img.clientHeight}`);
 
         const wrapper = document.createElement('div');
         wrapper.className = 'page-image-wrapper reading-mode';
@@ -582,35 +636,80 @@ export class ReadingManager {
         overlay.id = 'word-highlight-overlay';
         overlay.className = 'word-highlight-overlay';
 
+        overlay.addEventListener('contextmenu', (e) => {
+            if (e.target !== overlay) return;
+            const selectedText =
+                window.getSelection().toString().trim() ||
+                this.getManualSelectionText();
+            this.clara.contextMenu.showPdf(e, null, selectedText);
+        });
+
         img.parentNode.insertBefore(wrapper, img);
         wrapper.appendChild(img);
         wrapper.appendChild(overlay);
+
+        // CRITICAL: Filter words to only those with coordinates FIRST
+        // Then use filtered array consistently everywhere
+        const wordsWithCoords = this.state.words.filter(w => w.x !== undefined && w.y !== undefined);
+
+        // Update state.words to filtered version so everything is aligned
+        if (wordsWithCoords.length !== this.state.words.length) {
+            console.log('[Overlay] Filtered', this.state.words.length, 'words to', wordsWithCoords.length, 'with coordinates');
+            this.state.words = wordsWithCoords;
+            // Rebuild pageText to match
+            this.state.pageText = wordsWithCoords.map(w => w.text).join(' ');
+        }
 
         // Create word boxes using DocumentFragment for performance
         const fragment = document.createDocumentFragment();
 
         this.state.words.forEach((word, idx) => {
-            if (word.x !== undefined && word.y !== undefined) {
-                const box = document.createElement('div');
-                box.className = 'word-box';
-                box.dataset.index = idx;
-                box.style.cssText = `left:${word.x}%;top:${word.y}%;width:${word.w}%;height:${word.h}%`;
+            const box = document.createElement('div');
+            box.className = 'word-box';
+            box.dataset.index = idx;
+            box.dataset.word = word.text || '';
+            box.style.cssText = `left:${word.x}%;top:${word.y}%;width:${word.w}%;height:${word.h}%`;
 
-                box.addEventListener('dblclick', (e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    this.clara.dictionary.lookup(word.text, box);
-                });
+            box.addEventListener('dblclick', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                this.clara.dictionary.lookup(word.text, box);
+            });
 
-                box.addEventListener('contextmenu', (e) => {
-                    e.stopPropagation();
-                    const selectedText = window.getSelection().toString().trim();
-                    this.clara.contextMenu.showPdf(e, idx, selectedText || word.text);
-                });
+            // In focus mode, single click gives quick meaning without extra UI hops.
+            box.addEventListener('click', (e) => {
+                const focusMode = this.clara.settings?.getReadingSetting('focusMode') ?? false;
+                if (!focusMode) return;
+                if (window.getSelection().toString().trim()) return;
+                e.stopPropagation();
+                this.clara.dictionary.lookup(word.text, box);
+            });
 
-                fragment.appendChild(box);
-                this.wordBoxes.push(box);
-            }
+            box.addEventListener('contextmenu', (e) => {
+                e.stopPropagation();
+                const selectedText =
+                    window.getSelection().toString().trim() ||
+                    this.getManualSelectionText();
+                this.clara.contextMenu.showPdf(e, idx, selectedText || word.text);
+            });
+
+            box.addEventListener('mousedown', (e) => {
+                if (e.button !== 0) return;
+                if (window.getSelection().toString().trim()) return;
+                this.manualSelection.active = true;
+                this.manualSelection.start = idx;
+                this.manualSelection.end = idx;
+                this.renderManualSelectionRange();
+            });
+
+            box.addEventListener('mouseenter', () => {
+                if (!this.manualSelection.active) return;
+                this.manualSelection.end = idx;
+                this.renderManualSelectionRange();
+            });
+
+            fragment.appendChild(box);
+            this.wordBoxes.push(box);
         });
 
         overlay.appendChild(fragment);
@@ -623,6 +722,9 @@ export class ReadingManager {
                 `"${w.text}" at (${w.x?.toFixed(1)}%, ${w.y?.toFixed(1)}%) size ${w.w?.toFixed(1)}x${w.h?.toFixed(1)}%`
             ));
         }
+
+        // Keep note tags synced with current reading page overlay.
+        this.clara.notes.renderMarkers();
     }
 
     tokenizeText(text) {
@@ -682,14 +784,16 @@ export class ReadingManager {
 
         // Limit words to match backend limit (500 words)
         const MAX_WORDS = 500;
-        let textToRead = this.state.pageText;
         let wordsToHighlight = this.state.words;
+        let textToRead;
 
         if (this.state.words.length > MAX_WORDS) {
             console.log('[PlayAudioFull] Limiting from', this.state.words.length, 'to', MAX_WORDS, 'words');
             wordsToHighlight = this.state.words.slice(0, MAX_WORDS);
-            textToRead = wordsToHighlight.map(w => w.text).join(' ');
         }
+
+        // CRITICAL: Always build text from exact words to ensure 1:1 sync
+        textToRead = wordsToHighlight.map(w => w.text).join(' ');
 
         try {
             const res = await fetch('/play-text', {
@@ -1042,12 +1146,15 @@ export class ReadingManager {
     async fetchActualWordTimings() {
         console.log('[WordTiming] Fetching ACTUAL timings from Edge TTS backend...');
 
+        // Get text that matches our words exactly for timing request
+        const textForTiming = this.state.words.map(w => w.text).join(' ');
+
         try {
             const res = await fetch('/word-timings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    text: this.state.pageText,
+                    text: textForTiming,  // Use exact word text for perfect match
                     voice: this.state.selectedVoice
                 })
             });
@@ -1057,7 +1164,10 @@ export class ReadingManager {
                 return await this.estimateWordTimings();
             }
 
-            const backendTimings = await res.json();
+            const backendResponse = await res.json();
+            const backendTimings = Array.isArray(backendResponse)
+                ? backendResponse
+                : (backendResponse?.timings || []);
 
             // If no timings returned (Edge TTS not available), fall back to estimation
             if (!backendTimings || backendTimings.length === 0) {
@@ -1069,76 +1179,84 @@ export class ReadingManager {
             console.log('[WordTiming] Our words:', this.state.words.length);
 
             // CRITICAL: Filter out punctuation-only items from backend
-            // Edge TTS returns ".", ",", "!", "?" etc. as separate timing items
             const filteredBackend = backendTimings.filter(t => {
                 const normalized = t.text.toLowerCase().replace(/[^a-z0-9]/g, '');
-                return normalized.length > 0; // Keep only items with letters/numbers
+                return normalized.length > 0;
             });
 
-            console.log(`[WordTiming] Filtered to ${filteredBackend.length} actual words (removed punctuation)`);
+            console.log(`[WordTiming] Filtered to ${filteredBackend.length} actual words`);
 
-            // Match backend timings to our word array exactly
+            // Get audio duration for fallback distribution
+            const duration = await this.getAudioDuration();
+
+            // IMPROVED MATCHING ALGORITHM
             this.wordTimings = [];
 
-            // Create normalized versions for matching
             const ourWords = this.state.words.map(w => ({
                 original: w.text,
                 normalized: w.text.toLowerCase().replace(/[^a-z0-9]/g, '')
             }));
 
-            const backendWords = filteredBackend.map(t => ({
-                ...t,
-                normalized: t.text.toLowerCase().replace(/[^a-z0-9]/g, '')
-            }));
+            // If word counts match exactly, use 1:1 mapping (ideal case).
+            if (filteredBackend.length === ourWords.length) {
+                console.log('[WordTiming] ✓ Perfect 1:1 word count match!');
+                for (let i = 0; i < ourWords.length; i++) {
+                    const bt = filteredBackend[i];
+                    this.wordTimings.push({
+                        start: bt.offset,
+                        end: bt.offset + bt.duration,
+                        word: ourWords[i].original
+                    });
+                }
+            } else {
+                console.log('[WordTiming] Word count mismatch, using sequential matching + fallback');
 
-            let backendIdx = 0;
+                // Baseline timings by proportional length so every word always has a timing.
+                const totalChars = Math.max(ourWords.reduce((sum, w) => sum + Math.max(w.original.length, 1), 0), 1);
+                let fallbackCurrent = 0;
+                this.wordTimings = ourWords.map((w) => {
+                    const wordDuration = (Math.max(w.original.length, 1) / totalChars) * duration;
+                    const timing = {
+                        start: fallbackCurrent,
+                        end: fallbackCurrent + wordDuration,
+                        word: w.original
+                    };
+                    fallbackCurrent += wordDuration;
+                    return timing;
+                });
 
-            for (let i = 0; i < ourWords.length; i++) {
-                const ourNorm = ourWords[i].normalized;
+                // Overlay real backend timings in order using a forward-only pointer.
+                let backendIndex = 0;
+                const maxScanAhead = 16;
 
-                // Try to find exact or close match
-                let bestMatch = null;
-                let bestMatchScore = 0;
+                for (let i = 0; i < ourWords.length; i++) {
+                    const target = ourWords[i].normalized;
+                    if (!target) continue;
 
-                // Look ahead up to 10 words in backend array (generous window for hyphenated/split words)
-                for (let j = backendIdx; j < Math.min(backendIdx + 10, backendWords.length); j++) {
-                    const backendNorm = backendWords[j].normalized;
+                    let matchIdx = -1;
+                    const scanLimit = Math.min(filteredBackend.length, backendIndex + maxScanAhead);
 
-                    // Exact match
-                    if (ourNorm === backendNorm) {
-                        bestMatch = j;
-                        bestMatchScore = 100;
-                        break;
-                    }
-
-                    // Partial match
-                    if (ourNorm.includes(backendNorm) || backendNorm.includes(ourNorm)) {
-                        const score = Math.min(ourNorm.length, backendNorm.length) / Math.max(ourNorm.length, backendNorm.length) * 100;
-                        if (score > bestMatchScore) {
-                            bestMatch = j;
-                            bestMatchScore = score;
+                    for (let k = backendIndex; k < scanLimit; k++) {
+                        const candidate = filteredBackend[k].text.toLowerCase().replace(/[^a-z0-9]/g, '');
+                        if (candidate === target) {
+                            matchIdx = k;
+                            break;
                         }
                     }
+
+                    if (matchIdx !== -1) {
+                        const bt = filteredBackend[matchIdx];
+                        this.wordTimings[i] = {
+                            start: bt.offset,
+                            end: bt.offset + bt.duration,
+                            word: ourWords[i].original
+                        };
+                        backendIndex = matchIdx + 1;
+                    }
                 }
 
-                if (bestMatch !== null && bestMatchScore > 50) {
-                    // Use matched timing
-                    this.wordTimings.push({
-                        start: backendWords[bestMatch].offset,
-                        end: backendWords[bestMatch].offset + backendWords[bestMatch].duration,
-                        word: ourWords[i].original
-                    });
-                    backendIdx = bestMatch + 1;
-                } else {
-                    // No good match - estimate from previous word
-                    const prevTiming = i > 0 ? this.wordTimings[i - 1] : { end: 0 };
-                    const estimatedDuration = ourWords[i].original.length * 0.08; // 80ms per character
-                    this.wordTimings.push({
-                        start: prevTiming.end,
-                        end: prevTiming.end + estimatedDuration,
-                        word: ourWords[i].original
-                    });
-                }
+                // Keep the timings aligned to word order and audio duration.
+                this.normalizeTimings(duration);
             }
 
             console.log('[WordTiming] ✓ Matched timings to PDF words');
@@ -1153,20 +1271,84 @@ export class ReadingManager {
         }
     }
 
+    // Ensure timings are sequential in word order and cover the full audio duration.
+    normalizeTimings(duration) {
+        if (this.wordTimings.length === 0) return;
+
+        // Keep original array order (PDF word order). Never sort by start time.
+        for (let i = 0; i < this.wordTimings.length; i++) {
+            const t = this.wordTimings[i];
+            if (!Number.isFinite(t.start) || t.start < 0) t.start = 0;
+            if (!Number.isFinite(t.end) || t.end <= t.start) t.end = t.start + 0.05;
+        }
+
+        // Enforce monotonic progression while preserving word order.
+        for (let i = 1; i < this.wordTimings.length; i++) {
+            const prev = this.wordTimings[i - 1];
+            const current = this.wordTimings[i];
+            if (current.start < prev.end) {
+                current.start = prev.end;
+            }
+            if (current.end <= current.start) {
+                current.end = current.start + 0.05;
+            }
+        }
+
+        // Scale to fit duration.
+        const lastTiming = this.wordTimings[this.wordTimings.length - 1];
+        if (duration > 0 && lastTiming.end > 0 && (lastTiming.end < duration * 0.9 || lastTiming.end > duration * 1.1)) {
+            const scale = duration / lastTiming.end;
+            for (const timing of this.wordTimings) {
+                timing.start *= scale;
+                timing.end *= scale;
+            }
+        }
+    }
+
     getAudioDuration() {
         return new Promise((resolve) => {
-            if (this.audio.duration && !isNaN(this.audio.duration)) {
+            // Check if duration is already available
+            if (this.audio.duration && !isNaN(this.audio.duration) && this.audio.duration > 0) {
+                console.log('[Audio] Duration already available:', this.audio.duration);
                 resolve(this.audio.duration);
-            } else {
-                this.audio.addEventListener('loadedmetadata', () => {
-                    resolve(this.audio.duration);
-                }, { once: true });
+                return;
             }
+
+            // Set up listener for metadata
+            const onMetadata = () => {
+                console.log('[Audio] Metadata loaded, duration:', this.audio.duration);
+                resolve(this.audio.duration);
+            };
+
+            this.audio.addEventListener('loadedmetadata', onMetadata, { once: true });
+
+            // Also listen for canplaythrough as fallback
+            this.audio.addEventListener('canplaythrough', () => {
+                if (this.audio.duration && !isNaN(this.audio.duration)) {
+                    console.log('[Audio] Canplaythrough, duration:', this.audio.duration);
+                    resolve(this.audio.duration);
+                }
+            }, { once: true });
+
+            // Timeout fallback - if we can't get duration, estimate based on word count
+            setTimeout(() => {
+                if (this.audio.duration && !isNaN(this.audio.duration)) {
+                    resolve(this.audio.duration);
+                } else {
+                    // Estimate: ~150ms per word average
+                    const estimatedDuration = this.state.words.length * 0.15;
+                    console.warn('[Audio] Duration timeout, estimating:', estimatedDuration);
+                    resolve(estimatedDuration);
+                }
+            }, 5000);
         });
     }
 
     startAnimationFrameSync() {
         if (this.syncRAF) return; // Already running
+
+        // Reset timing check on start
+        this.lastTimingCheck = 0;
 
         const syncLoop = () => {
             if (!this.state.isPlaying) {
@@ -1179,6 +1361,10 @@ export class ReadingManager {
         };
 
         this.syncRAF = requestAnimationFrame(syncLoop);
+
+        // CRITICAL: Immediately validate position on sync start
+        setTimeout(() => this.validateAndCorrectPosition(), 100);
+
         console.log('[Sync] Started animation frame sync (60 FPS)');
     }
 
@@ -1191,37 +1377,57 @@ export class ReadingManager {
     }
 
     updateWordHighlight() {
-        if (!this.state.isReadingMode || !this.state.isPlaying || this.wordTimings.length === 0) return;
+        if (!this.state.isReadingMode || !this.state.isPlaying) return;
+
+        // Need both timings and word boxes to highlight
+        if (this.wordTimings.length === 0 || this.wordBoxes.length === 0) {
+            return;
+        }
 
         const currentTime = this.audio.currentTime;
 
-        // ULTRA-AGGRESSIVE: Check every frame for perfect sync
+        // Check every second for drift and correct immediately
         if (currentTime - this.lastTimingCheck > 1) {
             this.recalibrateWordTiming(currentTime);
             this.lastTimingCheck = currentTime;
         }
 
-        // Binary search for the word at current time (no drift correction - trust timings)
+        // Binary search for the word at current time
         let newWordIndex = this.findWordAtTime(currentTime);
 
-        // Ensure we don't go beyond available word timings
-        newWordIndex = Math.min(newWordIndex, this.wordTimings.length - 1);
+        // Ensure we don't go beyond available word timings or boxes
+        const maxIndex = Math.min(this.wordTimings.length, this.wordBoxes.length) - 1;
+        newWordIndex = Math.min(newWordIndex, maxIndex);
+        newWordIndex = Math.max(newWordIndex, 0);
 
-        if (newWordIndex !== this.state.currentWordIndex && newWordIndex >= 0) {
+        // CRITICAL FIX: Always highlight if index changed OR if first word hasn't been highlighted yet
+        const needsHighlight = newWordIndex !== this.lastHighlightedIndex;
+
+        if (needsHighlight && newWordIndex >= 0) {
             this.highlightWord(newWordIndex);
         }
     }
 
     recalibrateWordTiming(currentTime) {
-        // With 60 FPS sync, we don't need drift correction - just verify we're on track
+        // CRITICAL: Detect AND CORRECT drift to ensure perfect sync
         const expectedIndex = this.state.currentWordIndex;
         const actualIndex = this.findWordAtTime(currentTime);
 
-        const drift = actualIndex - expectedIndex;
+        const drift = Math.abs(actualIndex - expectedIndex);
 
-        // Log significant drift for debugging
-        if (Math.abs(drift) > 3) {
-            console.warn('[Sync] Drift detected:', drift, 'words at', currentTime.toFixed(2), 's');
+        // ALWAYS correct any drift immediately - this is the key to perfect sync
+        if (drift > 0 && actualIndex >= 0 && actualIndex < this.wordTimings.length) {
+            if (drift > 1) {
+                console.log('[Sync] Correcting drift:', actualIndex - expectedIndex, 'words at', currentTime.toFixed(2), 's');
+            }
+            // Force highlight to the CORRECT word based on audio time
+            this.state.currentWordIndex = actualIndex;
+            this.highlightWord(actualIndex);
+
+            // If drift is significant (> 3 words), run more frequent checks
+            if (drift > 3) {
+                this.lastTimingCheck = currentTime - 0.5; // Check again in 0.5 seconds
+            }
         }
     }
 
@@ -1249,32 +1455,42 @@ export class ReadingManager {
     highlightWord(index) {
         if (!this.state.isReadingMode) return;
 
+        // CRITICAL: Ensure word boxes exist
+        if (this.wordBoxes.length === 0) {
+            console.warn('[Highlight] No word boxes available');
+            return;
+        }
+
+        // CRITICAL: Validate index is within bounds of WORD BOXES (what we actually highlight)
+        if (index < 0 || index >= this.wordBoxes.length) {
+            console.warn('[Highlight] Index out of bounds:', index, '/', this.wordBoxes.length);
+            return;
+        }
+
+        // Log first highlight for debugging
+        if (this.lastHighlightedIndex === -1) {
+            console.log('[Highlight] First word highlight at index', index);
+        }
+
         // Check reading settings
-        const highlightEnabled = this.clara.settingsManager?.getReadingSetting('highlightEnabled') ?? true;
-        const showReadWords = this.clara.settingsManager?.getReadingSetting('showReadWords') ?? true;
+        const highlightEnabled = this.clara.settings?.getReadingSetting('highlightEnabled') ?? true;
+        const showReadWords = this.clara.settings?.getReadingSetting('showReadWords') ?? true;
 
         // Only update changed boxes (incremental update)
         const prevIndex = this.lastHighlightedIndex;
 
-        // Get current word's y-position to determine line
+        // Determine line boundaries for read-word overlays.
         const currentWord = this.state.words[index];
-        const currentLineY = currentWord ? currentWord.y : null;
+        const currentLineKey = this.getWordLineKey(currentWord, index);
 
-        // Get previous word's y-position
         const prevWord = prevIndex >= 0 ? this.state.words[prevIndex] : null;
-        const prevLineY = prevWord ? prevWord.y : null;
-
-        // Detect if we've moved to a new line (y-position changed significantly)
-        // Use a threshold to account for slight variations in y-position within the same line
-        const lineChangeThreshold = 1.0; // 1% difference indicates new line
-        const hasChangedLine = prevLineY !== null && currentLineY !== null &&
-                               Math.abs(currentLineY - prevLineY) > lineChangeThreshold;
+        const prevLineKey = prevWord ? this.getWordLineKey(prevWord, prevIndex) : null;
+        const hasChangedLine = prevLineKey !== null && prevLineKey !== currentLineKey;
 
         if (hasChangedLine) {
-            // Clear gray overlay from ALL words on previous line
+            // Clear gray overlay from words on the previous line.
             for (let i = 0; i < this.wordBoxes.length; i++) {
-                const word = this.state.words[i];
-                if (word && word.y !== undefined && Math.abs(word.y - prevLineY) < lineChangeThreshold) {
+                if (this.getWordLineKey(this.state.words[i], i) === prevLineKey) {
                     this.wordBoxes[i].classList.remove('read');
                 }
             }
@@ -1285,12 +1501,10 @@ export class ReadingManager {
             this.wordBoxes[prevIndex].classList.remove('active');
         }
 
-        // Mark words on CURRENT LINE before current word as read (if setting enabled)
-        if (showReadWords && currentLineY !== null && index > 0) {
+        // Mark words on the current line before the active word as read.
+        if (showReadWords && index > 0) {
             for (let i = 0; i < index && i < this.wordBoxes.length; i++) {
-                const word = this.state.words[i];
-                // Only gray words on the same line as current word
-                if (word && word.y !== undefined && Math.abs(word.y - currentLineY) < lineChangeThreshold) {
+                if (this.getWordLineKey(this.state.words[i], i) === currentLineKey) {
                     this.wordBoxes[i].classList.add('read');
                 }
             }
@@ -1348,26 +1562,23 @@ export class ReadingManager {
 
         const timing = this.wordTimings[wordIndex];
         if (timing) {
+            // Set audio position FIRST
             this.audio.currentTime = timing.start;
 
-            // Clear all 'read' classes first
+            // Clear all visual states
             for (let i = 0; i < this.wordBoxes.length; i++) {
                 this.wordBoxes[i].classList.remove('read');
                 this.wordBoxes[i].classList.remove('active');
             }
 
-            // Get the target word's line (y-position)
+            // Get the target word's line.
             const targetWord = this.state.words[wordIndex];
-            const targetLineY = targetWord ? targetWord.y : null;
-            const lineChangeThreshold = 1.0;
+            const targetLineKey = this.getWordLineKey(targetWord, wordIndex);
 
-            // Mark only words on the SAME LINE before the target word as read
-            if (targetLineY !== null) {
-                for (let i = 0; i < wordIndex && i < this.wordBoxes.length; i++) {
-                    const word = this.state.words[i];
-                    if (word && word.y !== undefined && Math.abs(word.y - targetLineY) < lineChangeThreshold) {
-                        this.wordBoxes[i].classList.add('read');
-                    }
+            // Mark only words on the same line before the target word as read.
+            for (let i = 0; i < wordIndex && i < this.wordBoxes.length; i++) {
+                if (this.getWordLineKey(this.state.words[i], i) === targetLineKey) {
+                    this.wordBoxes[i].classList.add('read');
                 }
             }
 
@@ -1378,6 +1589,32 @@ export class ReadingManager {
 
             this.lastHighlightedIndex = wordIndex;
             this.state.currentWordIndex = wordIndex;
+
+            // CRITICAL: Force immediate position validation after seek
+            this.validateAndCorrectPosition();
+        }
+    }
+
+    // CRITICAL: Validate current position and correct any mismatch
+    validateAndCorrectPosition() {
+        if (!this.audio || !this.wordTimings.length) return;
+
+        const currentTime = this.audio.currentTime;
+        const expectedIndex = this.state.currentWordIndex;
+        const actualIndex = this.findWordAtTime(currentTime);
+
+        if (actualIndex !== expectedIndex && actualIndex >= 0) {
+            console.log('[Validate] Correcting position:', expectedIndex, '->', actualIndex);
+            this.state.currentWordIndex = actualIndex;
+            this.lastHighlightedIndex = actualIndex - 1;
+
+            // Update visual highlight
+            for (let i = 0; i < this.wordBoxes.length; i++) {
+                this.wordBoxes[i].classList.remove('active');
+            }
+            if (actualIndex < this.wordBoxes.length) {
+                this.wordBoxes[actualIndex].classList.add('active');
+            }
         }
     }
 
@@ -1387,6 +1624,9 @@ export class ReadingManager {
         // Reset user scrolling flag when sync is clicked
         this.userIsScrolling = false;
         clearTimeout(this.userScrollTimeout);
+
+        // CRITICAL: Validate and correct position first
+        this.validateAndCorrectPosition();
 
         const currentPageNum = this.state.viewerCurrentPage;
         const readingWrapper = document.querySelector(`.page-image-wrapper.reading-mode[data-reading-page="${currentPageNum}"]`);
@@ -1469,6 +1709,8 @@ export class ReadingManager {
         if (this.audio.src) {
             this.audio.play();
             this.startAnimationFrameSync();
+            // CRITICAL: Validate position immediately on resume
+            setTimeout(() => this.validateAndCorrectPosition(), 50);
         } else {
             this.playPageAudio();
         }
@@ -1496,7 +1738,7 @@ export class ReadingManager {
         this.updatePlayPauseButton();
 
         // Check auto-advance setting
-        const autoAdvance = this.clara.settingsManager?.getReadingSetting('autoAdvance') ?? true;
+        const autoAdvance = this.clara.settings?.getReadingSetting('autoAdvance') ?? true;
 
         // Check if there's a next page to read and auto-advance is enabled
         if (autoAdvance && this.state.viewerCurrentPage < this.state.viewerPageCount - 1) {
@@ -1529,8 +1771,12 @@ export class ReadingManager {
                 wordIndex: this.state.currentWordIndex,
                 words: this.state.words,
                 pageText: this.state.pageText,
-                isPdf: this.state.isPdf
+                isPdf: this.state.isPdf,
+                // CRITICAL: Also save timings for perfect restore
+                wordTimings: this.wordTimings.length > 0 ? this.wordTimings : null,
+                audioTime: this.audio ? this.audio.currentTime : 0
             };
+            console.log('[Session] Saved at word', this.state.currentWordIndex, 'time', this.audio?.currentTime?.toFixed(2));
         }
     }
 
@@ -1551,50 +1797,114 @@ export class ReadingManager {
         this.state.words = session.words;
         this.state.currentWordIndex = session.wordIndex;
 
+        // CRITICAL: Restore timings if available for perfect sync
+        if (session.wordTimings && session.wordTimings.length > 0) {
+            this.wordTimings = session.wordTimings;
+            console.log('[Session] Restored with', this.wordTimings.length, 'timings at word', session.wordIndex);
+        }
+
         return true;
     }
 
     applyReadWordsFromSession() {
         const savedIndex = this.state.currentWordIndex;
+        const savedLineKey = savedIndex >= 0
+            ? this.getWordLineKey(this.state.words[savedIndex], savedIndex)
+            : null;
 
         for (let i = 0; i < savedIndex && i < this.wordBoxes.length; i++) {
-            this.wordBoxes[i].classList.add('read');
+            if (savedLineKey !== null && this.getWordLineKey(this.state.words[i], i) === savedLineKey) {
+                this.wordBoxes[i].classList.add('read');
+            }
         }
 
         this.lastHighlightedIndex = savedIndex - 1;
     }
 
-    async readFromWord(wordIndex) {
+    async readFromWord(wordIndex, pageNum = null) {
         if (wordIndex === null || wordIndex === undefined) return;
+        const commandId = ++this.readFromCommandId;
+        const requestedWordIndex = Math.max(0, parseInt(wordIndex, 10) || 0);
+        const currentPageBefore = this.state.viewerCurrentPage;
+        const hasExplicitPage = Number.isInteger(pageNum) && pageNum >= 0 && pageNum < this.state.viewerPageCount;
+        const targetPage = hasExplicitPage ? pageNum : currentPageBefore;
 
-        console.log('[ReadFromWord] Starting from word index:', wordIndex, '/', this.state.words.length);
+        if (hasExplicitPage) {
+            this.forceStartPage = targetPage;
+            this.state.viewerCurrentPage = targetPage;
 
-        this.pendingWordIndex = wordIndex;
+            // Ensure the clicked page is actually loaded before reading overlay is built.
+            if (typeof this.clara.viewer?.loadSinglePageLazy === 'function') {
+                await this.clara.viewer.loadSinglePageLazy(targetPage);
+                if (commandId !== this.readFromCommandId) return;
+            }
+
+            await this.clara.viewer.loadPage(targetPage);
+            if (commandId !== this.readFromCommandId) return;
+
+            const targetPageEl = document.getElementById(`page-${targetPage}`);
+            if (targetPageEl) {
+                targetPageEl.scrollIntoView({ behavior: 'auto', block: 'center' });
+            }
+            this.clara.viewer.updatePageIndicator();
+            this.clara.viewer.setActiveThumbnail(targetPage);
+        } else {
+            this.forceStartPage = null;
+        }
+
+        console.log('[ReadFromWord] Starting from word index:', requestedWordIndex, '/', this.state.words.length);
+
+        this.pendingWordIndex = requestedWordIndex;
+
+        // Preempt current playback immediately so latest "read from here" wins.
+        if (this.audio && !this.audio.paused) {
+            this.audio.pause();
+        }
+        this.state.isPlaying = false;
+
+        // If command points to a different page while already reading, restart pipeline on that page.
+        if (this.state.isReadingMode && targetPage !== currentPageBefore) {
+            this.stop();
+            this.state.readingSession = null;
+        }
 
         if (!this.state.isReadingMode) {
             console.log('[ReadFromWord] Starting reading mode first...');
+            // Ignore stale resume pointer when user explicitly asks to start from a word.
+            this.state.readingSession = null;
             await this.start();
+            if (commandId !== this.readFromCommandId) return;
         }
 
-        // Wait for audio to be ready
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // Wait for timings so seeking starts at the exact selected word.
+        const waitUntil = Date.now() + 5000;
+        while (this.wordTimings.length <= requestedWordIndex && Date.now() < waitUntil) {
+            if (commandId !== this.readFromCommandId) return;
+            await new Promise(resolve => setTimeout(resolve, 80));
+        }
+        if (commandId !== this.readFromCommandId) return;
 
-        if (this.wordTimings.length > wordIndex) {
-            console.log('[ReadFromWord] Seeking to word', wordIndex, 'at time:', this.wordTimings[wordIndex].start, 's');
-            this.seekToWord(wordIndex);
+        const wordMaxIndex = Math.max(0, (this.state.words?.length || 1) - 1);
+        const timingMaxIndex = Math.max(0, (this.wordTimings?.length || 1) - 1);
+        const clampedWordIndex = Math.min(requestedWordIndex, wordMaxIndex, timingMaxIndex);
 
-            if (!this.state.isPlaying) {
-                this.audio.play();
+        if (this.wordTimings.length > clampedWordIndex) {
+            console.log('[ReadFromWord] Seeking to word', clampedWordIndex, 'at time:', this.wordTimings[clampedWordIndex].start, 's');
+            this.seekToWord(clampedWordIndex);
+            if (commandId === this.readFromCommandId) {
+                this.audio.play().catch(() => {});
             }
         } else {
             console.log('[ReadFromWord] Word timings not ready yet, setting index manually');
-            this.state.currentWordIndex = wordIndex;
-            for (let i = 0; i < wordIndex && i < this.wordBoxes.length; i++) {
+            this.state.currentWordIndex = clampedWordIndex;
+            for (let i = 0; i < clampedWordIndex && i < this.wordBoxes.length; i++) {
                 this.wordBoxes[i].classList.add('read');
             }
         }
 
-        this.pendingWordIndex = null;
+        if (commandId === this.readFromCommandId) {
+            this.pendingWordIndex = null;
+        }
     }
 
     async askQuestion() {
@@ -1633,6 +1943,7 @@ export class ReadingManager {
             const answerText = data.answer || data.fallback_answer || 'No answer found.';
             document.getElementById('answer-text').textContent = answerText;
             document.getElementById('answer-box').classList.remove('hidden');
+            this.renderAnswerSources(question, answerText);
 
             this.state.lastQuestion = question;
             this.state.lastAnswer = answerText;
@@ -1644,5 +1955,71 @@ export class ReadingManager {
             this.clara.ui.showToast('Question failed: ' + err.message, true);
             this.clara.ui.hideInlineLoading();
         }
+    }
+
+    renderAnswerSources(question, answerText) {
+        const sourcesEl = document.getElementById('answer-sources');
+        if (!sourcesEl) return;
+
+        const snippets = this.findSourceSnippets(this.state.pageText || '', `${question} ${answerText}`);
+
+        if (snippets.length === 0) {
+            sourcesEl.classList.add('hidden');
+            sourcesEl.innerHTML = '';
+            return;
+        }
+
+        sourcesEl.classList.remove('hidden');
+        sourcesEl.innerHTML = `
+            <div class="answer-sources-label">From this page</div>
+            ${snippets.map((snippet, idx) => `
+                <div class="answer-source-item">
+                    <span class="answer-source-index">${idx + 1}.</span>
+                    <span class="answer-source-text">${this.clara.ui.escapeHtml(snippet)}</span>
+                </div>
+            `).join('')}
+        `;
+    }
+
+    findSourceSnippets(pageText, queryText) {
+        if (!pageText || pageText.length < 20) return [];
+
+        const words = (queryText || '')
+            .toLowerCase()
+            .replace(/[^a-z0-9\s]/g, ' ')
+            .split(/\s+/)
+            .filter(w => w.length >= 4);
+
+        const unique = [...new Set(words)].slice(0, 8);
+        if (unique.length === 0) return [];
+
+        const rawSentences = pageText.split(/(?<=[.!?])\s+/);
+        const scored = rawSentences.map(sentence => {
+            const lower = sentence.toLowerCase();
+            const score = unique.reduce((sum, token) => sum + (lower.includes(token) ? 1 : 0), 0);
+            return { sentence: sentence.trim(), score };
+        }).filter(s => s.score > 0 && s.sentence.length > 20);
+
+        scored.sort((a, b) => b.score - a.score);
+        return scored.slice(0, 2).map(s => s.sentence.length > 220 ? `${s.sentence.slice(0, 220)}...` : s.sentence);
+    }
+
+    getWordLineKey(word, index = -1) {
+        if (!word) return `idx:${index}`;
+
+        if (word.line_id !== undefined && word.line_id !== null) {
+            return `line:${word.line_id}`;
+        }
+
+        if (word.block !== undefined && word.line !== undefined) {
+            return `blk:${word.block}:line:${word.line}`;
+        }
+
+        if (typeof word.y === 'number') {
+            // Fallback for legacy word data without explicit line id.
+            return `y:${Math.round(word.y * 2) / 2}`;
+        }
+
+        return `idx:${index}`;
     }
 }

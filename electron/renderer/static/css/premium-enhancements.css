@@ -1154,3 +1154,368 @@ select:focus {
     transform: translateZ(0);
     -webkit-transform: translateZ(0);
 }
+
+/* ============================================
+   CALM PREMIUM REFRESH (v2)
+   Cohesive glassy surfaces + focused reading look
+   ============================================ */
+
+body {
+    background:
+        radial-gradient(900px 520px at -8% -6%, rgba(74, 144, 226, 0.11), transparent 62%),
+        radial-gradient(760px 460px at 108% 0%, rgba(139, 127, 214, 0.09), transparent 58%),
+        linear-gradient(180deg, #f9fbfe 0%, #f4f7fb 100%);
+}
+
+.app-container {
+    position: relative;
+}
+
+.app-container::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+        linear-gradient(rgba(255, 255, 255, 0.7) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.7) 1px, transparent 1px);
+    background-size: 28px 28px, 28px 28px;
+    opacity: 0.22;
+}
+
+.nav-bar {
+    background: rgba(255, 255, 255, 0.88);
+    border-bottom: 1px solid rgba(85, 109, 140, 0.14);
+    box-shadow: 0 8px 26px rgba(36, 56, 82, 0.08);
+}
+
+.nav-title {
+    background: none;
+    -webkit-text-fill-color: var(--color-text-primary);
+    color: var(--color-text-primary);
+    font-weight: 700;
+}
+
+.nav-title span {
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.library-content {
+    gap: 18px;
+}
+
+.folder-sidebar,
+.document-area {
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(100, 123, 153, 0.18);
+    border-radius: 16px;
+    box-shadow:
+        0 14px 28px rgba(35, 55, 84, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.document-area {
+    padding: 14px;
+}
+
+.folder-item {
+    border-radius: 10px;
+}
+
+.folder-item.active {
+    background: linear-gradient(135deg, rgba(74, 144, 226, 0.16) 0%, rgba(74, 144, 226, 0.08) 100%);
+    color: #2f5889;
+}
+
+.document-grid {
+    gap: 18px;
+}
+
+.document-card {
+    border: 1px solid rgba(118, 143, 179, 0.18);
+    border-radius: 16px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(246, 250, 255, 0.95) 100%);
+    box-shadow:
+        0 8px 18px rgba(36, 56, 82, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.document-card:hover {
+    transform: translateY(-6px) scale(1.015);
+    border-color: rgba(74, 144, 226, 0.44);
+    box-shadow:
+        0 18px 28px rgba(36, 56, 82, 0.14),
+        0 0 0 3px rgba(74, 144, 226, 0.12);
+}
+
+.document-card .doc-icon {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.viewer-container {
+    background:
+        linear-gradient(180deg, rgba(250, 252, 255, 0.92) 0%, rgba(245, 248, 253, 0.94) 100%);
+}
+
+.page-sidebar {
+    border-right: 1px solid rgba(84, 107, 136, 0.18);
+    background: linear-gradient(180deg, #263444 0%, #2f4256 100%);
+}
+
+.page-thumb {
+    border-radius: 8px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.26);
+}
+
+.page-thumb.active {
+    box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.82), 0 8px 18px rgba(0, 0, 0, 0.24);
+}
+
+.document-display {
+    background:
+        radial-gradient(700px 340px at 50% 0%, rgba(74, 144, 226, 0.08), transparent 72%),
+        linear-gradient(180deg, #eff4fb 0%, #eaf0f8 100%);
+}
+
+.reading-controls,
+.question-section,
+.notes-sidebar {
+    border: 1px solid rgba(86, 111, 142, 0.2);
+    box-shadow:
+        0 10px 26px rgba(34, 53, 82, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.reading-controls .btn-primary,
+.reading-controls .btn-secondary {
+    border-radius: 10px;
+}
+
+.modal {
+    background: rgba(29, 44, 64, 0.36);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+.modal-content {
+    border: 1px solid rgba(102, 124, 153, 0.2);
+    border-radius: 16px;
+    box-shadow:
+        0 26px 48px rgba(24, 39, 60, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.word-box.note-anchored {
+    background: rgba(74, 144, 226, 0.18);
+    box-shadow: inset 0 0 0 1px rgba(74, 144, 226, 0.2);
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+    outline: 2px solid rgba(74, 144, 226, 0.38);
+    outline-offset: 2px;
+}
+
+@media (max-width: 960px) {
+    .document-area {
+        padding: 10px;
+    }
+
+    .library-content {
+        gap: 12px;
+    }
+
+    .document-grid {
+        gap: 12px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .document-card,
+    .nav-btn,
+    .btn-primary,
+    .btn-secondary {
+        transition: none !important;
+        animation: none !important;
+    }
+}
+
+/* ============================================
+   ACADEMIA THEME PASS (Cool School)
+   ============================================ */
+
+:root {
+    --academia-navy-900: #1c2b44;
+    --academia-navy-800: #233754;
+    --academia-navy-700: #2f4b73;
+    --academia-ink: #2a3f5d;
+    --academia-sky-100: #edf3fc;
+    --academia-sky-200: #e3edf9;
+    --academia-sky-300: #d6e6f8;
+    --academia-border: rgba(48, 80, 120, 0.2);
+}
+
+body {
+    background:
+        linear-gradient(0deg, rgba(255, 255, 255, 0.62) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.62) 1px, transparent 1px),
+        radial-gradient(1200px 700px at 0% 0%, rgba(60, 102, 170, 0.16), transparent 62%),
+        radial-gradient(1100px 600px at 100% 4%, rgba(74, 144, 226, 0.12), transparent 58%),
+        linear-gradient(180deg, #f7fbff 0%, #edf4fd 100%);
+    background-size: 26px 26px, 26px 26px, auto, auto, auto;
+}
+
+.nav-bar {
+    background:
+        linear-gradient(0deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.86)),
+        linear-gradient(90deg, rgba(36, 64, 102, 0.06) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(36, 64, 102, 0.06) 1px, transparent 1px);
+    background-size: auto, 22px 22px, 22px 22px;
+    border-bottom: 1px solid rgba(55, 84, 122, 0.2);
+}
+
+.nav-btn {
+    color: var(--academia-ink);
+}
+
+.nav-btn:hover {
+    background: rgba(56, 92, 139, 0.12);
+    color: var(--academia-navy-700);
+}
+
+.library-header h2,
+.nav-title {
+    color: var(--academia-navy-900);
+}
+
+.library-subtitle {
+    color: #506482;
+}
+
+.folder-sidebar,
+.document-area,
+.reading-controls,
+.question-section,
+.notes-sidebar,
+.modal-content {
+    background:
+        linear-gradient(0deg, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.88)),
+        linear-gradient(90deg, rgba(46, 74, 113, 0.05) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(46, 74, 113, 0.05) 1px, transparent 1px);
+    background-size: auto, 20px 20px, 20px 20px;
+    border: 1px solid var(--academia-border);
+}
+
+.folder-item {
+    color: #48607f;
+}
+
+.folder-item:hover {
+    background: rgba(62, 99, 147, 0.1);
+    color: var(--academia-navy-800);
+}
+
+.folder-item.active {
+    background: linear-gradient(135deg, rgba(74, 144, 226, 0.2), rgba(74, 144, 226, 0.1));
+    color: var(--academia-navy-700);
+}
+
+.document-card {
+    background:
+        linear-gradient(180deg, #ffffff 0%, #f3f8ff 100%);
+    border: 1px solid rgba(70, 109, 160, 0.2);
+}
+
+.document-card .doc-title {
+    color: var(--academia-navy-900);
+}
+
+.document-card .doc-meta {
+    color: #577094;
+}
+
+.document-card:hover {
+    border-color: rgba(74, 144, 226, 0.55);
+    box-shadow:
+        0 18px 30px rgba(28, 53, 87, 0.16),
+        0 0 0 3px rgba(74, 144, 226, 0.16);
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #3e6ba6 0%, #4a90e2 100%);
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: linear-gradient(135deg, #355e92 0%, #417fca 100%);
+}
+
+.btn-secondary {
+    color: var(--academia-navy-800);
+    border-color: rgba(65, 100, 146, 0.28);
+    background: linear-gradient(180deg, #f7fbff 0%, #edf4fd 100%);
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background: linear-gradient(180deg, #eef5ff 0%, #e3eefc 100%);
+    border-color: rgba(65, 100, 146, 0.42);
+}
+
+.page-sidebar {
+    background:
+        linear-gradient(180deg, var(--academia-navy-900) 0%, var(--academia-navy-800) 100%),
+        linear-gradient(90deg, rgba(143, 175, 221, 0.13) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(143, 175, 221, 0.13) 1px, transparent 1px);
+    background-size: auto, 22px 22px, 22px 22px;
+}
+
+.page-thumb.active {
+    box-shadow:
+        0 0 0 2px rgba(93, 155, 233, 0.95),
+        0 0 0 5px rgba(93, 155, 233, 0.22),
+        0 12px 20px rgba(0, 0, 0, 0.28);
+}
+
+.document-display {
+    background:
+        radial-gradient(680px 320px at 50% -4%, rgba(74, 144, 226, 0.14), transparent 72%),
+        linear-gradient(0deg, rgba(255, 255, 255, 0.58) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.58) 1px, transparent 1px),
+        linear-gradient(180deg, #edf4fd 0%, #e4eefb 100%);
+    background-size: auto, 24px 24px, 24px 24px, auto;
+}
+
+.question-input-wrapper textarea,
+.note-textarea,
+.time-input {
+    background: linear-gradient(180deg, #ffffff 0%, var(--academia-sky-100) 100%);
+    border-color: rgba(65, 100, 146, 0.26);
+}
+
+.question-input-wrapper textarea:focus,
+.note-textarea:focus,
+.time-input:focus {
+    border-color: rgba(74, 144, 226, 0.62);
+    box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.14);
+}
+
+.note-card {
+    border: 1px solid rgba(67, 104, 152, 0.2);
+    background: linear-gradient(180deg, #ffffff 0%, #f1f7ff 100%);
+}
+
+.note-card:hover {
+    border-color: rgba(74, 144, 226, 0.5);
+    box-shadow: 0 8px 16px rgba(35, 61, 98, 0.14);
+}
+
+.note-marker {
+    border-color: rgba(39, 63, 97, 0.36);
+}

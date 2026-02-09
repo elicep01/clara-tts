@@ -91,6 +91,59 @@ export async function initDatabase(): Promise<void> {
         CREATE INDEX IF NOT EXISTS idx_notes_page ON notes(page_num);
     `);
 
+    // Lightweight migrations for trash support.
+    const hasDocumentDeletedAt = db.prepare(`PRAGMA table_info(documents)`).all()
+        .some((c: any) => c.name === 'deleted_at');
+    if (!hasDocumentDeletedAt) {
+        db.exec(`ALTER TABLE documents ADD COLUMN deleted_at TIMESTAMP`);
+    }
+
+    const hasDocumentPrevFolder = db.prepare(`PRAGMA table_info(documents)`).all()
+        .some((c: any) => c.name === 'previous_folder_id');
+    if (!hasDocumentPrevFolder) {
+        db.exec(`ALTER TABLE documents ADD COLUMN previous_folder_id TEXT`);
+    }
+
+    const hasFolderDeletedAt = db.prepare(`PRAGMA table_info(folders)`).all()
+        .some((c: any) => c.name === 'deleted_at');
+    if (!hasFolderDeletedAt) {
+        db.exec(`ALTER TABLE folders ADD COLUMN deleted_at TIMESTAMP`);
+    }
+
+    const hasFolderPrevParent = db.prepare(`PRAGMA table_info(folders)`).all()
+        .some((c: any) => c.name === 'previous_parent_id');
+    if (!hasFolderPrevParent) {
+        db.exec(`ALTER TABLE folders ADD COLUMN previous_parent_id TEXT`);
+    }
+
+    // Notes schema migrations for older installs.
+    const noteColumns = db.prepare(`PRAGMA table_info(notes)`).all().map((c: any) => c.name);
+    const hasAnchorX = noteColumns.includes('anchor_x');
+    const hasAnchorY = noteColumns.includes('anchor_y');
+
+    const ensureNoteColumn = (name: string, definition: string) => {
+        if (!noteColumns.includes(name)) {
+            db!.exec(`ALTER TABLE notes ADD COLUMN ${name} ${definition}`);
+            noteColumns.push(name);
+        }
+    };
+
+    ensureNoteColumn('position_x', 'REAL');
+    ensureNoteColumn('position_y', 'REAL');
+    ensureNoteColumn('anchor_text', 'TEXT');
+    ensureNoteColumn('anchor_type', 'TEXT');
+    ensureNoteColumn('question', 'TEXT');
+    ensureNoteColumn('color', `TEXT DEFAULT '#FFE066'`);
+    ensureNoteColumn('created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+    ensureNoteColumn('updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
+
+    if (hasAnchorX) {
+        db.exec(`UPDATE notes SET position_x = COALESCE(position_x, anchor_x)`);
+    }
+    if (hasAnchorY) {
+        db.exec(`UPDATE notes SET position_y = COALESCE(position_y, anchor_y)`);
+    }
+
     console.log('[Database] Initialized at:', p.dbPath);
 }
 

@@ -10,6 +10,7 @@ export const createInitialState = () => ({
     folders: [],
     documents: [],
     currentFolderId: null,
+    viewingTrash: false,
 
     // Viewer
     viewerDocId: null,
@@ -33,7 +34,7 @@ export const createInitialState = () => ({
     readingSession: null,  // { docId, docName, pageNum, wordIndex, words, pageText, isPdf }
 
     // Voice
-    selectedVoice: 'en-US-AvaNeural',
+    selectedVoice: 'en-US-JennyNeural',
 
     // Drag
     draggedItem: null,

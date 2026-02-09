@@ -7,6 +7,108 @@ import { extractPDFInfo, renderPDFPage, extractPDFText, extractPDFWords } from '
 import { generateAudioWithTimings, getWordTimings, getAvailableVoices, generatePreviewAudio } from './tts';
 import { askGemini, defineWord } from './ai';
 
+function getFolderTreeIds(db: any, folderId: string): string[] {
+    const rows = db.prepare(`
+        WITH RECURSIVE folder_tree(id) AS (
+            SELECT id FROM folders WHERE id = ?
+            UNION
+            SELECT f.id
+            FROM folders f
+            JOIN folder_tree t ON (f.parent_id = t.id OR f.previous_parent_id = t.id)
+        )
+        SELECT DISTINCT id FROM folder_tree
+    `).all(folderId) as Array<{ id: string }>;
+    return rows.map(r => r.id);
+}
+
+function moveDocumentToTrash(db: any, docId: string): void {
+    db.prepare(`
+        UPDATE documents
+        SET deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP),
+            previous_folder_id = COALESCE(previous_folder_id, folder_id),
+            folder_id = NULL
+        WHERE id = ?
+    `).run(docId);
+}
+
+function moveFolderTreeToTrash(db: any, folderId: string): void {
+    const treeIds = getFolderTreeIds(db, folderId);
+    if (treeIds.length === 0) return;
+
+    const marks = treeIds.map(() => '?').join(',');
+
+    db.prepare(`
+        UPDATE folders
+        SET deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP),
+            previous_parent_id = COALESCE(previous_parent_id, parent_id),
+            parent_id = NULL
+        WHERE id IN (${marks})
+    `).run(...treeIds);
+
+    db.prepare(`
+        UPDATE documents
+        SET deleted_at = COALESCE(deleted_at, CURRENT_TIMESTAMP),
+            previous_folder_id = COALESCE(previous_folder_id, folder_id),
+            folder_id = NULL
+        WHERE folder_id IN (${marks})
+    `).run(...treeIds);
+}
+
+function restoreFolderTree(db: any, folderId: string): void {
+    const rows = db.prepare(`
+        WITH RECURSIVE restore_tree(id) AS (
+            SELECT id FROM folders WHERE id = ?
+            UNION
+            SELECT f.id
+            FROM folders f
+            JOIN restore_tree t ON f.previous_parent_id = t.id
+        )
+        SELECT DISTINCT id FROM restore_tree
+    `).all(folderId) as Array<{ id: string }>;
+    const treeIds = rows.map(r => r.id);
+    if (treeIds.length === 0) return;
+
+    const marks = treeIds.map(() => '?').join(',');
+
+    db.prepare(`
+        UPDATE folders
+        SET deleted_at = NULL,
+            parent_id = previous_parent_id,
+            previous_parent_id = NULL
+        WHERE id IN (${marks})
+    `).run(...treeIds);
+
+    db.prepare(`
+        UPDATE documents
+        SET deleted_at = NULL,
+            folder_id = previous_folder_id,
+            previous_folder_id = NULL
+        WHERE previous_folder_id IN (${marks})
+    `).run(...treeIds);
+}
+
+function permanentlyDeleteFolderTree(db: any, folderId: string): number {
+    const treeIds = getFolderTreeIds(db, folderId);
+    if (treeIds.length === 0) return 0;
+
+    const marks = treeIds.map(() => '?').join(',');
+    const docs = db.prepare(`
+        SELECT id, file_path FROM documents
+        WHERE folder_id IN (${marks}) OR previous_folder_id IN (${marks})
+    `).all(...treeIds, ...treeIds) as Array<{ id: string; file_path: string }>;
+
+    for (const doc of docs) {
+        if (doc.file_path && fs.existsSync(doc.file_path)) {
+            fs.unlinkSync(doc.file_path);
+        }
+    }
+
+    db.prepare(`DELETE FROM documents WHERE folder_id IN (${marks}) OR previous_folder_id IN (${marks})`)
+        .run(...treeIds, ...treeIds);
+    db.prepare(`DELETE FROM folders WHERE id IN (${marks})`).run(...treeIds);
+    return treeIds.length;
+}
+
 export function setupIPCHandlers(ipc: typeof ipcMain): void {
     // ============================================
     // LIBRARY MANAGEMENT
@@ -85,11 +187,8 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
 
     ipc.handle('library:deleteFolder', async (_event: any, { folder_id }: any) => {
         const db = getDatabase();
-        // Move documents in this folder to root
-        db.prepare('UPDATE documents SET folder_id = NULL WHERE folder_id = ?').run(folder_id);
-        // Delete the folder
-        db.prepare('DELETE FROM folders WHERE id = ?').run(folder_id);
-        return { success: true };
+        const deletedFolders = permanentlyDeleteFolderTree(db, folder_id);
+        return { success: true, deleted_folders: deletedFolders };
     });
 
     ipc.handle('library:moveFolder', async (_event: any, { folder_id, parent_id }: any) => {
@@ -105,26 +204,90 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
     ipc.handle('library:deleteMultiple', async (_event: any, { doc_ids, folder_ids }: any) => {
         const db = getDatabase();
 
-        // Delete documents
+        // Move documents to trash.
+        if (doc_ids && doc_ids.length > 0) {
+            for (const doc_id of doc_ids) {
+                moveDocumentToTrash(db, doc_id);
+            }
+        }
+
+        // Move folder trees to trash.
+        if (folder_ids && folder_ids.length > 0) {
+            for (const folder_id of folder_ids) {
+                moveFolderTreeToTrash(db, folder_id);
+            }
+        }
+
+        return { success: true, trashed_docs: doc_ids?.length || 0, trashed_folders: folder_ids?.length || 0 };
+    });
+
+    ipc.handle('library:moveDocumentToTrash', async (_event: any, { doc_id }: any) => {
+        const db = getDatabase();
+        moveDocumentToTrash(db, doc_id);
+        return { success: true };
+    });
+
+    ipc.handle('library:moveFolderToTrash', async (_event: any, { folder_id }: any) => {
+        const db = getDatabase();
+        moveFolderTreeToTrash(db, folder_id);
+        return { success: true };
+    });
+
+    ipc.handle('library:restoreDocument', async (_event: any, { doc_id }: any) => {
+        const db = getDatabase();
+        db.prepare(`
+            UPDATE documents
+            SET deleted_at = NULL,
+                folder_id = previous_folder_id,
+                previous_folder_id = NULL
+            WHERE id = ?
+        `).run(doc_id);
+        return { success: true };
+    });
+
+    ipc.handle('library:restoreFolder', async (_event: any, { folder_id }: any) => {
+        const db = getDatabase();
+        restoreFolderTree(db, folder_id);
+        return { success: true };
+    });
+
+    ipc.handle('library:deleteMultiplePermanent', async (_event: any, { doc_ids, folder_ids }: any) => {
+        const db = getDatabase();
+        let deletedDocs = 0;
+        let deletedFolders = 0;
+
         if (doc_ids && doc_ids.length > 0) {
             for (const doc_id of doc_ids) {
                 const doc = db.prepare('SELECT file_path FROM documents WHERE id = ?').get(doc_id) as any;
-                if (doc && fs.existsSync(doc.file_path)) {
+                if (doc && doc.file_path && fs.existsSync(doc.file_path)) {
                     fs.unlinkSync(doc.file_path);
                 }
                 db.prepare('DELETE FROM documents WHERE id = ?').run(doc_id);
+                deletedDocs++;
             }
         }
 
-        // Delete folders (move their contents to root first)
         if (folder_ids && folder_ids.length > 0) {
             for (const folder_id of folder_ids) {
-                db.prepare('UPDATE documents SET folder_id = NULL WHERE folder_id = ?').run(folder_id);
-                db.prepare('DELETE FROM folders WHERE id = ?').run(folder_id);
+                deletedFolders += permanentlyDeleteFolderTree(db, folder_id);
             }
         }
 
-        return { success: true, deleted_docs: doc_ids?.length || 0, deleted_folders: folder_ids?.length || 0 };
+        return { success: true, deleted_docs: deletedDocs, deleted_folders: deletedFolders };
+    });
+
+    ipc.handle('library:emptyTrash', async () => {
+        const db = getDatabase();
+        const trashedDocs = db.prepare('SELECT id, file_path FROM documents WHERE deleted_at IS NOT NULL').all() as any[];
+        for (const doc of trashedDocs) {
+            if (doc.file_path && fs.existsSync(doc.file_path)) {
+                fs.unlinkSync(doc.file_path);
+            }
+        }
+
+        const deletedDocs = db.prepare('DELETE FROM documents WHERE deleted_at IS NOT NULL').run().changes;
+        const deletedFolders = db.prepare('DELETE FROM folders WHERE deleted_at IS NOT NULL').run().changes;
+        return { success: true, deleted_docs: deletedDocs, deleted_folders: deletedFolders };
     });
 
     // ============================================
@@ -276,6 +439,7 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
         let docTitle = '';
         let actualPageText = '';
         let firstPageText = '';
+        let filePath = '';
 
         if (!doc_id) {
             console.error('[AI] No doc_id provided!');
@@ -286,7 +450,7 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
             const db = getDatabase();
             const doc = db.prepare('SELECT original_filename FROM documents WHERE id = ?').get(doc_id) as any;
             // PDFs are stored as {doc_id}.pdf directly in documents folder
-            const filePath = path.join(getDocumentsFolder(), `${doc_id}.pdf`);
+            filePath = path.join(getDocumentsFolder(), `${doc_id}.pdf`);
 
             console.log(`[AI] Looking for file at: ${filePath}`);
 
@@ -309,9 +473,25 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
             actualPageText = await extractPDFText(filePath, pageToExtract);
             console.log(`[AI] Extracted ${actualPageText.length} characters`);
 
-            if (!actualPageText || actualPageText.length < 10) {
-                console.error('[AI] Text extraction returned empty/minimal content');
-                return { answer: `Could not extract text from page ${pageToExtract}. The PDF might be image-based or corrupted.`, error: 'extraction_failed' };
+            if (!actualPageText || actualPageText.length < 80) {
+                console.warn('[AI] Sparse text extraction on requested page, collecting nearby context');
+                const info = await extractPDFInfo(filePath);
+                const maxPage = Math.max(1, info.pageCount || 1);
+                const nearbyPages = [pageToExtract - 1, pageToExtract, pageToExtract + 1, pageToExtract + 2]
+                    .filter((p, idx, arr) => p >= 1 && p <= maxPage && arr.indexOf(p) === idx);
+
+                const chunks: string[] = [];
+                for (const p of nearbyPages) {
+                    const txt = await extractPDFText(filePath, p);
+                    if (txt && txt.trim().length > 0) {
+                        chunks.push(`[Page ${p}] ${txt.trim()}`);
+                    }
+                }
+
+                if (chunks.length > 0) {
+                    actualPageText = chunks.join('\n\n');
+                    console.log(`[AI] Built fallback context with ${actualPageText.length} characters from nearby pages`);
+                }
             }
 
             // For "book about" questions, also get first page
@@ -321,6 +501,11 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
 
             if (isBookQuestion && pageToExtract !== 1) {
                 firstPageText = await extractPDFText(filePath, 1);
+            }
+
+            // Ensure we always have at least a minimal context payload.
+            if (!actualPageText || actualPageText.trim().length === 0) {
+                actualPageText = `Document title: ${docTitle}. Limited extractable text available from the PDF pages.`;
             }
         } catch (err) {
             console.error('[AI] Error extracting PDF text:', err);

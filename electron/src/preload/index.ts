@@ -17,14 +17,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
             ipcRenderer.invoke('library:renameDocument', { doc_id, new_name }),
         moveDocument: (doc_id: string, folder_id?: string) =>
             ipcRenderer.invoke('library:moveDocument', { doc_id, folder_id }),
+        moveDocumentToTrash: (doc_id: string) =>
+            ipcRenderer.invoke('library:moveDocumentToTrash', { doc_id }),
+        restoreDocument: (doc_id: string) =>
+            ipcRenderer.invoke('library:restoreDocument', { doc_id }),
         deleteFolder: (folder_id: string) =>
             ipcRenderer.invoke('library:deleteFolder', { folder_id }),
         renameFolder: (folder_id: string, new_name: string) =>
             ipcRenderer.invoke('library:renameFolder', { folder_id, new_name }),
         moveFolder: (folder_id: string, parent_id?: string) =>
             ipcRenderer.invoke('library:moveFolder', { folder_id, parent_id }),
+        moveFolderToTrash: (folder_id: string) =>
+            ipcRenderer.invoke('library:moveFolderToTrash', { folder_id }),
+        restoreFolder: (folder_id: string) =>
+            ipcRenderer.invoke('library:restoreFolder', { folder_id }),
         deleteMultiple: (doc_ids: string[], folder_ids: string[]) =>
-            ipcRenderer.invoke('library:deleteMultiple', { doc_ids, folder_ids })
+            ipcRenderer.invoke('library:deleteMultiple', { doc_ids, folder_ids }),
+        deleteMultiplePermanent: (doc_ids: string[], folder_ids: string[]) =>
+            ipcRenderer.invoke('library:deleteMultiplePermanent', { doc_ids, folder_ids }),
+        emptyTrash: () =>
+            ipcRenderer.invoke('library:emptyTrash')
     },
 
     // Document
@@ -98,10 +110,16 @@ declare global {
                 deleteDocument: (doc_id: string) => Promise<any>;
                 renameDocument: (doc_id: string, new_name: string) => Promise<any>;
                 moveDocument: (doc_id: string, folder_id?: string) => Promise<any>;
+                moveDocumentToTrash: (doc_id: string) => Promise<any>;
+                restoreDocument: (doc_id: string) => Promise<any>;
                 deleteFolder: (folder_id: string) => Promise<any>;
                 renameFolder: (folder_id: string, new_name: string) => Promise<any>;
                 moveFolder: (folder_id: string, parent_id?: string) => Promise<any>;
+                moveFolderToTrash: (folder_id: string) => Promise<any>;
+                restoreFolder: (folder_id: string) => Promise<any>;
                 deleteMultiple: (doc_ids: string[], folder_ids: string[]) => Promise<any>;
+                deleteMultiplePermanent: (doc_ids: string[], folder_ids: string[]) => Promise<any>;
+                emptyTrash: () => Promise<any>;
             };
             document: {
                 getInfo: (doc_id: string) => Promise<any>;

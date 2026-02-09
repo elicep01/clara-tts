@@ -68,6 +68,16 @@ export class DragDropManager {
             const target = e.target.closest('[data-drop-target="true"]');
 
             if (target && this.state.draggedItem) {
+                if (target.dataset.trashTarget === 'true') {
+                    if (this.state.draggedItemType === 'document') {
+                        await this.clara.library.moveDocumentToTrash(this.state.draggedItem);
+                    } else if (this.state.draggedItemType === 'folder') {
+                        await this.clara.library.moveFolderToTrash(this.state.draggedItem);
+                    }
+                    document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+                    return;
+                }
+
                 let targetFolderId = null;
 
                 if (target.dataset.folderId !== undefined) {
