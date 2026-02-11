@@ -32,7 +32,8 @@ sessions/
 # Electron
 electron/node_modules/
 electron/dist/
-electron/build/
+electron/build/*
+!electron/build/icons/
 
 # Backup files
 *.backup

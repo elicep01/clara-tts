@@ -2028,6 +2028,75 @@ body.focus-mode .question-input {
     background: var(--color-bg-elevated);
 }
 
+.note-input-toolbar {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+
+.btn-note-tool {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--color-border-default);
+    background: var(--color-bg-primary);
+    color: var(--color-text-secondary);
+    padding: 6px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+.btn-note-tool svg {
+    width: 14px;
+    height: 14px;
+}
+
+.btn-note-tool:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+    background: var(--color-accent-subtle);
+}
+
+.btn-note-tool.recording {
+    border-color: #d94848;
+    color: #d94848;
+    background: rgba(217, 72, 72, 0.08);
+    box-shadow: 0 0 0 2px rgba(217, 72, 72, 0.14);
+}
+
+.note-style-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.note-style-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+}
+
+.note-style-select {
+    border: 1px solid var(--color-border-default);
+    background: var(--color-bg-primary);
+    color: var(--color-text-primary);
+    border-radius: 8px;
+    padding: 6px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    outline: none;
+}
+
+.note-style-select:focus {
+    border-color: var(--color-accent);
+}
+
 .note-meta {
     font-size: 11px;
     color: var(--color-text-secondary);

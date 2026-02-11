@@ -6,6 +6,15 @@ export class NotesManager {
         this.clara = clara;
         this.state = clara.state;
         this.pendingNewNoteDraft = null;
+        this.noteDictation = {
+            recognition: null,
+            supported: false,
+            active: false,
+            baseText: '',
+            finalText: '',
+            interimText: '',
+            style: 'study'
+        };
     }
 
     setup() {
@@ -32,6 +41,33 @@ export class NotesManager {
         document.getElementById('btn-delete-note').addEventListener('click', () => {
             this.deleteCurrent();
         });
+
+        document.getElementById('btn-dictate-note').addEventListener('click', async () => {
+            await this.toggleNoteDictation();
+        });
+
+        document.getElementById('btn-clean-note').addEventListener('click', () => {
+            this.cleanCurrentNoteText();
+        });
+
+        const styleSelect = document.getElementById('note-dictation-style');
+        if (styleSelect) {
+            const savedStyle = localStorage.getItem('note_dictation_style');
+            if (savedStyle && ['study', 'verbatim', 'summary'].includes(savedStyle)) {
+                this.noteDictation.style = savedStyle;
+                styleSelect.value = savedStyle;
+            } else {
+                styleSelect.value = this.noteDictation.style;
+            }
+
+            styleSelect.addEventListener('change', () => {
+                const value = styleSelect.value;
+                if (['study', 'verbatim', 'summary'].includes(value)) {
+                    this.noteDictation.style = value;
+                    localStorage.setItem('note_dictation_style', value);
+                }
+            });
+        }
 
         document.querySelector('#note-modal .modal-backdrop').addEventListener('click', () => {
             this.hideModal();
@@ -548,6 +584,11 @@ export class NotesManager {
     openModal(note, draft = null) {
         this.state.currentNote = note;
         this.pendingNewNoteDraft = note ? null : (draft || this.pendingNewNoteDraft);
+        this.stopNoteDictation();
+        const styleSelect = document.getElementById('note-dictation-style');
+        if (styleSelect) {
+            styleSelect.value = this.noteDictation.style || 'study';
+        }
 
         const modal = document.getElementById('note-modal');
         const title = document.getElementById('note-modal-title');
@@ -614,9 +655,260 @@ export class NotesManager {
     }
 
     hideModal() {
+        this.stopNoteDictation();
         document.getElementById('note-modal').classList.add('hidden');
         this.state.currentNote = null;
         this.pendingNewNoteDraft = null;
+    }
+
+    ensureNoteDictationSupport() {
+        if (this.noteDictation.recognition) return true;
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            this.noteDictation.supported = false;
+            return false;
+        }
+
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'en-US';
+        recognition.interimResults = true;
+        recognition.continuous = true;
+
+        recognition.onstart = () => {
+            this.noteDictation.active = true;
+            this.updateDictateButton();
+        };
+
+        recognition.onresult = (event) => {
+            const input = document.getElementById('note-content-input');
+            if (!input) return;
+
+            let finalChunk = '';
+            let interimChunk = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                const transcript = event.results[i][0].transcript;
+                if (event.results[i].isFinal) {
+                    finalChunk += transcript;
+                } else {
+                    interimChunk += transcript;
+                }
+            }
+
+            if (finalChunk) {
+                this.noteDictation.finalText += (this.noteDictation.finalText ? ' ' : '') + finalChunk.trim();
+            }
+            this.noteDictation.interimText = interimChunk.trim();
+
+            const processedFinal = this.postProcessSpokenText(this.noteDictation.finalText, false);
+            const processedInterim = this.postProcessSpokenText(this.noteDictation.interimText, false);
+
+            const merged = [this.noteDictation.baseText, processedFinal, processedInterim]
+                .filter(Boolean)
+                .join(' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+
+            input.value = merged;
+        };
+
+        recognition.onerror = (event) => {
+            if (event.error === 'network') {
+                this.clara.ui.showToast('Dictation network error. Current mode uses browser speech service.', true);
+                return;
+            }
+            if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                this.clara.ui.showToast('Microphone permission denied for dictation.', true);
+                return;
+            }
+            if (event.error !== 'no-speech' && event.error !== 'aborted') {
+                this.clara.ui.showToast(`Dictation error: ${event.error}`, true);
+            }
+        };
+
+        recognition.onend = () => {
+            this.noteDictation.active = false;
+            this.updateDictateButton();
+
+            const input = document.getElementById('note-content-input');
+            if (input && this.noteDictation.finalText) {
+                const finalized = this.postProcessSpokenText(this.noteDictation.finalText, true);
+                const styled = this.applyDictationStyle(finalized, this.noteDictation.style);
+                const merged = [this.noteDictation.baseText, finalized]
+                    .filter(Boolean)
+                    .join('\n\n')
+                    .replace(/\n{3,}/g, '\n\n')
+                    .trim();
+                input.value = [this.noteDictation.baseText, styled].filter(Boolean).join('\n\n').trim() || merged;
+                this.noteDictation.interimText = '';
+                this.clara.ui.showToast('Dictation added to note');
+            }
+        };
+
+        this.noteDictation.recognition = recognition;
+        this.noteDictation.supported = true;
+        return true;
+    }
+
+    updateDictateButton() {
+        const btn = document.getElementById('btn-dictate-note');
+        if (!btn) return;
+        btn.classList.toggle('recording', this.noteDictation.active);
+        btn.title = this.noteDictation.active ? 'Stop dictation' : 'Dictate note';
+        btn.innerHTML = this.noteDictation.active
+            ? `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="6" y="6" width="12" height="12" rx="2"/>
+                </svg>
+                Stop
+              `
+            : `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" y1="19" x2="12" y2="23"/>
+                    <line x1="8" y1="23" x2="16" y2="23"/>
+                </svg>
+                Dictate
+              `;
+    }
+
+    async toggleNoteDictation() {
+        if (!this.ensureNoteDictationSupport()) {
+            this.clara.ui.showToast('Dictation is not supported on this device', true);
+            return;
+        }
+
+        if (this.noteDictation.active) {
+            this.stopNoteDictation();
+            return;
+        }
+
+        const input = document.getElementById('note-content-input');
+        this.noteDictation.baseText = (input?.value || '').trim();
+        this.noteDictation.finalText = '';
+        this.noteDictation.interimText = '';
+
+        try {
+            // Audio-only permission preflight keeps dictation explicit and avoids silent failures.
+            if (navigator.mediaDevices?.getUserMedia) {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                stream.getTracks().forEach(track => track.stop());
+            }
+            this.noteDictation.recognition.start();
+            this.clara.ui.showToast('Dictation started');
+        } catch (err) {
+            this.clara.ui.showToast('Could not start dictation. Check microphone permission.', true);
+        }
+    }
+
+    stopNoteDictation() {
+        if (this.noteDictation.recognition && this.noteDictation.active) {
+            this.noteDictation.recognition.stop();
+            this.clara.ui.showToast('Dictation stopped');
+        }
+        this.noteDictation.active = false;
+        this.updateDictateButton();
+    }
+
+    cleanCurrentNoteText() {
+        const input = document.getElementById('note-content-input');
+        if (!input) return;
+        const text = (input.value || '').trim();
+        if (!text) return;
+
+        const cleaned = this.applyDictationStyle(
+            this.postProcessSpokenText(text, true),
+            this.noteDictation.style
+        );
+
+        input.value = cleaned;
+        this.clara.ui.showToast('Cleaned spoken note');
+    }
+
+    postProcessSpokenText(text, finalize = true) {
+        if (!text) return '';
+
+        let out = String(text);
+
+        // Convert spoken editing/punctuation commands while preserving wording.
+        out = out
+            .replace(/\b(new paragraph|next paragraph)\b/gi, '\n\n')
+            .replace(/\b(new line|next line|newline)\b/gi, '\n')
+            .replace(/\b(bullet point|bullet)\b/gi, '\n- ')
+            .replace(/\b(full stop|period)\b/gi, '.')
+            .replace(/\b(comma)\b/gi, ',')
+            .replace(/\b(question mark)\b/gi, '?')
+            .replace(/\b(exclamation mark)\b/gi, '!')
+            .replace(/\b(colon)\b/gi, ':')
+            .replace(/\b(semicolon)\b/gi, ';');
+
+        out = out
+            .replace(/\s+([,.;:!?])/g, '$1')
+            .replace(/([,.;:!?])([^\s\n])/g, '$1 $2')
+            .replace(/[ \t]+\n/g, '\n')
+            .replace(/\n{3,}/g, '\n\n')
+            .replace(/[ \t]{2,}/g, ' ')
+            .trim();
+
+        if (!finalize) return out;
+
+        // Light final polish without changing user intent.
+        out = out
+            .split('\n')
+            .map(line => line.trim())
+            .join('\n')
+            .replace(/(^\w|[.!?]\s+\w)/g, (m) => m.toUpperCase())
+            .trim();
+
+        return out;
+    }
+
+    applyDictationStyle(text, style) {
+        const normalized = String(text || '').trim();
+        if (!normalized) return '';
+
+        if (style === 'verbatim') {
+            return normalized;
+        }
+
+        const sentenceCandidates = normalized
+            .replace(/\n+/g, ' ')
+            .split(/(?<=[.!?])\s+/)
+            .map(s => s.trim())
+            .filter(Boolean);
+
+        if (style === 'summary') {
+            const top = sentenceCandidates.slice(0, 3);
+            if (top.length === 0) return normalized;
+            return top.join(' ');
+        }
+
+        // Default: Study Notes. Keep user wording, organize for recall.
+        const lines = normalized
+            .split('\n')
+            .map(l => l.trim())
+            .filter(Boolean)
+            .filter(l => !/^(um+|uh+|hmm+)$/i.test(l));
+
+        const keyIdea = sentenceCandidates[0] || lines[0] || normalized;
+        const detailItems = (sentenceCandidates.length > 1
+            ? sentenceCandidates.slice(1)
+            : lines.slice(1))
+            .slice(0, 6);
+
+        const out = [];
+        out.push(`Key idea: ${keyIdea.replace(/[.!?]+$/, '')}.`);
+        if (detailItems.length > 0) {
+            out.push('');
+            out.push('Details:');
+            detailItems.forEach(item => {
+                const clean = item.replace(/^[•\-]\s*/, '').trim();
+                if (clean) out.push(`- ${clean}`);
+            });
+        }
+
+        return out.join('\n').trim();
     }
 
     async save() {

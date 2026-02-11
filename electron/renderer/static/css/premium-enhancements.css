@@ -1519,3 +1519,79 @@ body {
 .note-marker {
     border-color: rgba(39, 63, 97, 0.36);
 }
+
+/* Notebook-style notes aesthetic */
+.notes-sidebar {
+    background:
+        linear-gradient(0deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.9)),
+        linear-gradient(90deg, rgba(193, 214, 241, 0.22) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(193, 214, 241, 0.22) 1px, transparent 1px);
+    background-size: auto, 22px 22px, 22px 22px;
+}
+
+.notes-header {
+    border-bottom: 1px solid rgba(74, 112, 164, 0.22);
+}
+
+.note-card {
+    position: relative;
+    border: 1px solid rgba(67, 104, 152, 0.22);
+    border-radius: 12px;
+    background:
+        linear-gradient(0deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.94)),
+        linear-gradient(0deg, rgba(201, 220, 244, 0.55) 1px, transparent 1px);
+    background-size: auto, 100% 24px;
+    box-shadow:
+        0 6px 14px rgba(33, 54, 86, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.note-card::before {
+    content: '';
+    position: absolute;
+    top: 8px;
+    bottom: 8px;
+    left: 8px;
+    width: 2px;
+    border-radius: 2px;
+    background: rgba(220, 85, 85, 0.26);
+}
+
+.note-card-content,
+.note-card-answer,
+.note-card-meta {
+    margin-left: 10px;
+}
+
+.note-textarea {
+    line-height: 24px;
+    border-radius: 10px;
+    background:
+        linear-gradient(0deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.98)),
+        linear-gradient(0deg, rgba(185, 207, 236, 0.45) 1px, transparent 1px);
+    background-size: auto, 100% 24px;
+    border: 1px solid rgba(86, 122, 170, 0.28);
+    padding-left: 18px;
+}
+
+.note-textarea:focus {
+    border-color: rgba(74, 144, 226, 0.62);
+    box-shadow:
+        0 0 0 3px rgba(74, 144, 226, 0.14),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.8);
+}
+
+.note-question,
+.note-anchor {
+    background:
+        linear-gradient(0deg, rgba(245, 250, 255, 0.95), rgba(245, 250, 255, 0.95)),
+        linear-gradient(90deg, rgba(201, 220, 244, 0.28) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(201, 220, 244, 0.28) 1px, transparent 1px);
+    background-size: auto, 18px 18px, 18px 18px;
+    border: 1px solid rgba(88, 122, 170, 0.18);
+}
+
+.note-meta {
+    color: #4a6385;
+    font-weight: 600;
+}
