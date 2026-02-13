@@ -124,9 +124,20 @@
                     return createResponse(buffer, 'image/png');
                 }
 
-                // TOC endpoints (not implemented yet - return empty)
+                // TOC endpoints
+                if (urlStr.includes('/toc-enhanced')) {
+                    const result = await window.electronAPI.document.getTOCEnhanced(doc_id);
+                    return createResponse(result);
+                }
+
+                if (urlStr.includes('/toc-quick')) {
+                    const result = await window.electronAPI.document.getTOCQuick(doc_id);
+                    return createResponse(result);
+                }
+
                 if (urlStr.includes('/toc')) {
-                    return createResponse({ toc: [] });
+                    const result = await window.electronAPI.document.getTOC(doc_id);
+                    return createResponse(result);
                 }
 
                 // Notes
@@ -171,9 +182,9 @@
 
             // First launch status
             if (urlStr === '/first-launch-status') {
-                // For now, skip first launch setup since Ollama auto-starts
+                const firstLaunchComplete = await window.electronAPI.prefs.get('first_launch_complete');
                 return createResponse({
-                    is_first_launch: false,
+                    is_first_launch: !firstLaunchComplete,
                     has_base_model: true,
                     base_model: {
                         id: 'llama3.2:1b',
@@ -181,6 +192,11 @@
                         size_mb: 1300
                     }
                 });
+            }
+
+            if (urlStr === '/mark-first-launch-complete' && method === 'POST') {
+                await window.electronAPI.prefs.set('first_launch_complete', true);
+                return createResponse({ success: true });
             }
 
             // TTS
@@ -191,6 +207,19 @@
                 return new Response(blob, {
                     status: 200,
                     headers: { 'Content-Type': 'audio/mpeg' }
+                });
+            }
+
+            if (urlStr === '/play-text-chunked' && method === 'POST') {
+                const result = await window.electronAPI.tts.generate(body.text, body.voice);
+                const blob = new Blob([result.audio], { type: 'audio/mpeg' });
+                return new Response(blob, {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'audio/mpeg',
+                        'X-Total-Chunks': '1',
+                        'X-Chunk-Index': String(body?.chunk_index || 0)
+                    }
                 });
             }
 
@@ -220,6 +249,14 @@
                 return createResponse(definition);
             }
 
+            if (urlStr === '/dictation/transcribe' && method === 'POST') {
+                const result = await window.electronAPI.ai.transcribeAudio(
+                    body.audio_bytes || [],
+                    body.mime_type || 'audio/webm'
+                );
+                return createResponse(result);
+            }
+
             // Legacy endpoint for word definitions
             if (urlStr === '/define-word' && method === 'POST') {
                 const definition = await window.electronAPI.ai.defineWord(
@@ -241,7 +278,8 @@
                         note_id,
                         body.anchor_x,
                         body.anchor_y,
-                        body.anchor_text
+                        body.anchor_text,
+                        body.page_num
                     );
                     return createResponse(result);
                 } else {
@@ -543,6 +581,13 @@
                 }
             }
 
+            const switchMatch = urlStr.match(/\/llm\/switch\/(.+)/);
+            if (switchMatch && method === 'POST') {
+                const modelId = decodeURIComponent(switchMatch[1]);
+                await window.electronAPI.prefs.set('llm_model', modelId);
+                return createResponse({ success: true, model: modelId });
+            }
+
             // LLM Download model
             if (urlStr === '/llm/download' && method === 'POST') {
                 try {
@@ -556,6 +601,31 @@
                 } catch (e) {
                     return createResponse({ error: 'AI engine not running. Please complete the quick setup first.' }, 'application/json', 500);
                 }
+            }
+
+            const downloadMatch = urlStr.match(/\/llm\/download\/([^/]+)$/);
+            if (downloadMatch && method === 'POST') {
+                const modelId = decodeURIComponent(downloadMatch[1]);
+                try {
+                    await originalFetch('http://localhost:11434/api/pull', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: modelId })
+                    });
+                    return createResponse({ success: true, status: 'downloading' });
+                } catch (e) {
+                    return createResponse({ error: 'AI engine not running. Please complete the quick setup first.' }, 'application/json', 500);
+                }
+            }
+
+            const legacyProgressMatch = urlStr.match(/\/llm\/download\/([^/]+)\/progress$/);
+            if (legacyProgressMatch && method === 'GET') {
+                return createResponse({ in_progress: false, complete: true, percent: 100 });
+            }
+
+            const cancelDownloadMatch = urlStr.match(/\/llm\/cancel-download\/(.+)/);
+            if (cancelDownloadMatch && method === 'POST') {
+                return createResponse({ success: true, cancelled: true });
             }
 
             // LLM Download progress
@@ -579,6 +649,21 @@
                 } catch (e) {
                     return createResponse({ error: e.message }, 'application/json', 500);
                 }
+            }
+
+            // Study sessions are not implemented in the Electron-only runtime.
+            if (urlStr.includes('/study/')) {
+                return createResponse({
+                    error: 'Study sessions are not available in this build yet.',
+                    unsupported: true
+                }, 'application/json', 503);
+            }
+
+            if (/\/document\/[^/]+\/file$/.test(urlStr)) {
+                return createResponse({
+                    error: 'Document file export is not available in this build yet.',
+                    unsupported: true
+                }, 'application/json', 503);
             }
 
             // Fallback to original fetch for unhandled routes

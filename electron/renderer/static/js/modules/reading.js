@@ -174,6 +174,10 @@ export class ReadingManager {
             if (!this.manualSelection.active) return;
             this.manualSelection.active = false;
         });
+        document.addEventListener('touchend', () => {
+            if (!this.manualSelection.active) return;
+            this.manualSelection.active = false;
+        }, { passive: true });
     }
 
     clearManualSelection() {
@@ -197,6 +201,13 @@ export class ReadingManager {
         this.wordBoxes.forEach((box, idx) => {
             box.classList.toggle('manual-selected', idx >= start && idx <= end);
         });
+    }
+
+    getWordBoxIndexFromPoint(clientX, clientY) {
+        const el = document.elementFromPoint(clientX, clientY);
+        if (!el || !el.classList || !el.classList.contains('word-box')) return null;
+        const idx = Number.parseInt(el.dataset.index ?? '', 10);
+        return Number.isFinite(idx) ? idx : null;
     }
 
     async start() {
@@ -643,6 +654,11 @@ export class ReadingManager {
                 this.getManualSelectionText();
             this.clara.contextMenu.showPdf(e, null, selectedText);
         });
+        this.clara.contextMenu.attachPdfLongPress(overlay, () => ({
+            target: overlay,
+            wordIndex: null,
+            selectedText: window.getSelection().toString().trim() || this.getManualSelectionText()
+        }));
 
         img.parentNode.insertBefore(wrapper, img);
         wrapper.appendChild(img);
@@ -692,6 +708,11 @@ export class ReadingManager {
                     this.getManualSelectionText();
                 this.clara.contextMenu.showPdf(e, idx, selectedText || word.text);
             });
+            this.clara.contextMenu.attachPdfLongPress(box, () => ({
+                target: box,
+                wordIndex: idx,
+                selectedText: window.getSelection().toString().trim() || this.getManualSelectionText() || word.text
+            }));
 
             box.addEventListener('mousedown', (e) => {
                 if (e.button !== 0) return;
@@ -707,6 +728,25 @@ export class ReadingManager {
                 this.manualSelection.end = idx;
                 this.renderManualSelectionRange();
             });
+
+            box.addEventListener('touchstart', (e) => {
+                if (!e.touches || e.touches.length !== 1) return;
+                if (window.getSelection().toString().trim()) return;
+                this.manualSelection.active = true;
+                this.manualSelection.start = idx;
+                this.manualSelection.end = idx;
+                this.renderManualSelectionRange();
+            }, { passive: true });
+
+            box.addEventListener('touchmove', (e) => {
+                if (!this.manualSelection.active) return;
+                if (!e.touches || e.touches.length !== 1) return;
+                const touch = e.touches[0];
+                const touchedIdx = this.getWordBoxIndexFromPoint(touch.clientX, touch.clientY);
+                if (touchedIdx === null) return;
+                this.manualSelection.end = touchedIdx;
+                this.renderManualSelectionRange();
+            }, { passive: true });
 
             fragment.appendChild(box);
             this.wordBoxes.push(box);

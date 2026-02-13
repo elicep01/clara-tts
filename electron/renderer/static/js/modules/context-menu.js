@@ -6,6 +6,8 @@ export class ContextMenuManager {
         this.clara = clara;
         this.state = clara.state;
         this.pdfContextData = null;
+        this.longPressDelayMs = 480;
+        this.activeLongPress = null;
     }
 
     setup() {
@@ -98,6 +100,30 @@ export class ContextMenuManager {
     }
 
     // PDF Context Menu
+    getPdfPageNumFromTarget(target) {
+        if (!target || !target.closest) return this.state.viewerCurrentPage;
+
+        const readingWrapper = target.closest('.page-image-wrapper.reading-mode');
+        if (readingWrapper && readingWrapper.dataset.readingPage !== undefined) {
+            const n = parseInt(readingWrapper.dataset.readingPage, 10);
+            if (Number.isFinite(n)) return n;
+        }
+
+        const continuousPage = target.closest('.continuous-page');
+        if (continuousPage && continuousPage.dataset.pageNum !== undefined) {
+            const n = parseInt(continuousPage.dataset.pageNum, 10);
+            if (Number.isFinite(n)) return n;
+        }
+
+        const overlay = target.closest('.word-highlight-overlay');
+        if (overlay && overlay.dataset.pageNum !== undefined) {
+            const n = parseInt(overlay.dataset.pageNum, 10);
+            if (Number.isFinite(n)) return n;
+        }
+
+        return this.state.viewerCurrentPage;
+    }
+
     showPdf(e, wordIndex, selectedText = '') {
         e.preventDefault();
         e.stopPropagation();
@@ -117,7 +143,7 @@ export class ContextMenuManager {
         this.pdfContextData = {
             wordIndex: wordIndex,
             selectedText: selectedText,
-            pageNum: this.state.viewerCurrentPage,
+            pageNum: this.getPdfPageNumFromTarget(e.target),
             anchorPoint
         };
 
@@ -125,16 +151,20 @@ export class ContextMenuManager {
 
         const readFromHere = menu.querySelector('[data-action="read-from-here"]');
         const addNote = menu.querySelector('[data-action="add-note"]');
+        const addSentenceNote = menu.querySelector('[data-action="add-sentence-note"]');
+        const addParagraphNote = menu.querySelector('[data-action="add-paragraph-note"]');
 
         const hasWordIndex = wordIndex !== null && wordIndex !== undefined;
         readFromHere.style.display = hasWordIndex ? 'flex' : 'none';
         addNote.style.display = 'flex';
+        addSentenceNote.style.display = hasWordIndex ? 'flex' : 'none';
+        addParagraphNote.style.display = hasWordIndex ? 'flex' : 'none';
 
         let left = e.clientX;
         let top = e.clientY;
 
         const menuWidth = 180;
-        const menuHeight = 100;
+        const menuHeight = hasWordIndex ? 200 : 100;
         if (left + menuWidth > window.innerWidth) {
             left = window.innerWidth - menuWidth - 10;
         }
@@ -162,8 +192,71 @@ export class ContextMenuManager {
                 break;
 
             case 'add-note':
-                this.clara.notes.addFromSelection(wordIndex, selectedText, anchorPoint);
+                this.clara.notes.addFromSelection(wordIndex, selectedText, anchorPoint, pageNum, { mode: 'selection' });
+                break;
+
+            case 'add-sentence-note':
+                this.clara.notes.addFromSelection(wordIndex, selectedText, anchorPoint, pageNum, { mode: 'sentence' });
+                break;
+
+            case 'add-paragraph-note':
+                this.clara.notes.addFromSelection(wordIndex, selectedText, anchorPoint, pageNum, { mode: 'paragraph' });
                 break;
         }
+    }
+
+    attachPdfLongPress(targetEl, getPayload) {
+        if (!targetEl || typeof getPayload !== 'function') return;
+
+        const clearActiveLongPress = () => {
+            if (!this.activeLongPress) return;
+            clearTimeout(this.activeLongPress.timer);
+            this.activeLongPress = null;
+        };
+
+        targetEl.addEventListener('touchstart', (e) => {
+            if (!e.touches || e.touches.length !== 1) return;
+            clearActiveLongPress();
+
+            const touch = e.touches[0];
+            const startX = touch.clientX;
+            const startY = touch.clientY;
+
+            const timer = window.setTimeout(() => {
+                const payload = getPayload() || {};
+                const pseudoEvent = {
+                    preventDefault: () => {},
+                    stopPropagation: () => {},
+                    target: payload.target || e.target,
+                    clientX: startX,
+                    clientY: startY
+                };
+                this.showPdf(
+                    pseudoEvent,
+                    payload.wordIndex ?? null,
+                    payload.selectedText ?? ''
+                );
+                this.activeLongPress = null;
+            }, this.longPressDelayMs);
+
+            this.activeLongPress = {
+                timer,
+                startX,
+                startY
+            };
+        }, { passive: true });
+
+        targetEl.addEventListener('touchmove', (e) => {
+            if (!this.activeLongPress || !e.touches || e.touches.length !== 1) return;
+            const touch = e.touches[0];
+            const dx = Math.abs(touch.clientX - this.activeLongPress.startX);
+            const dy = Math.abs(touch.clientY - this.activeLongPress.startY);
+            if (dx > 12 || dy > 12) {
+                clearActiveLongPress();
+            }
+        }, { passive: true });
+
+        targetEl.addEventListener('touchend', clearActiveLongPress, { passive: true });
+        targetEl.addEventListener('touchcancel', clearActiveLongPress, { passive: true });
     }
 }

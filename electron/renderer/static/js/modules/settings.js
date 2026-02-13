@@ -133,6 +133,9 @@ export class SettingsManager {
                 document.querySelectorAll('.word-box.active').forEach(el => {
                     el.classList.remove('active');
                 });
+            } else if (this.state.isReadingMode) {
+                const idx = this.state.currentWordIndex ?? 0;
+                this.clara.reading.highlightWord(idx);
             }
         } else if (setting === 'readWords') {
             if (!enabled) {
@@ -140,6 +143,9 @@ export class SettingsManager {
                 document.querySelectorAll('.word-box.read').forEach(el => {
                     el.classList.remove('read');
                 });
+            } else if (this.state.isReadingMode) {
+                const idx = this.state.currentWordIndex ?? 0;
+                this.clara.reading.highlightWord(idx);
             }
         } else if (setting === 'focusMode') {
             document.body.classList.toggle('focus-mode', !!enabled);

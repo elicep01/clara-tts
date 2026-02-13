@@ -309,7 +309,9 @@ export class LibraryManager {
             if (this.state.currentFolderId) {
                 docs = this.state.documents.filter(d => d.folder_id === this.state.currentFolderId && !d.deleted_at);
             } else {
-                docs = this.state.documents.filter(d => !d.deleted_at);
+                // "All Documents" should show only root/unfiled docs.
+                // Filed docs are shown only inside their folder.
+                docs = this.state.documents.filter(d => !d.deleted_at && !d.folder_id);
             }
 
             subfolders = this.state.folders.filter(f => {
@@ -517,7 +519,7 @@ export class LibraryManager {
         } else {
             docs = this.state.currentFolderId
                 ? this.state.documents.filter(d => d.folder_id === this.state.currentFolderId && !d.deleted_at)
-                : this.state.documents.filter(d => !d.deleted_at);
+                : this.state.documents.filter(d => !d.deleted_at && !d.folder_id);
 
             subfolders = this.state.folders.filter(f => {
                 if (f.deleted_at) return false;
@@ -653,6 +655,9 @@ export class LibraryManager {
         try {
             await fetch('/library/empty-trash', { method: 'POST' });
             this.clearSelection();
+            // After emptying trash, return to normal library root to avoid sticky trash state.
+            this.state.viewingTrash = false;
+            this.state.currentFolderId = null;
             await this.load();
             this.clara.ui.showToast('Trash emptied');
         } catch (err) {

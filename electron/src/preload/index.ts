@@ -49,6 +49,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
             ipcRenderer.invoke('document:getText', { doc_id, page_num }),
         getWords: (doc_id: string, page_num: number) =>
             ipcRenderer.invoke('document:getWords', { doc_id, page_num }),
+        getTOC: (doc_id: string) =>
+            ipcRenderer.invoke('document:getTOC', { doc_id }),
+        getTOCQuick: (doc_id: string) =>
+            ipcRenderer.invoke('document:getTOCQuick', { doc_id }),
+        getTOCEnhanced: (doc_id: string) =>
+            ipcRenderer.invoke('document:getTOCEnhanced', { doc_id }),
         updatePosition: (doc_id: string, page: number) =>
             ipcRenderer.invoke('document:updatePosition', { doc_id, page })
     },
@@ -75,8 +81,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
             ipcRenderer.invoke('notes:create', { doc_id, page_num, content, position_x, position_y, anchor_text, anchor_type, question, color }),
         update: (note_id: string, content: string, color?: string) =>
             ipcRenderer.invoke('notes:update', { note_id, content, color }),
-        updatePosition: (note_id: string, position_x: number, position_y: number, anchor_text?: string) =>
-            ipcRenderer.invoke('notes:updatePosition', { note_id, position_x, position_y, anchor_text }),
+        updatePosition: (note_id: string, position_x: number, position_y: number, anchor_text?: string, page_num?: number) =>
+            ipcRenderer.invoke('notes:updatePosition', { note_id, position_x, position_y, anchor_text, page_num }),
         delete: (note_id: string) =>
             ipcRenderer.invoke('notes:delete', { note_id })
     },
@@ -86,7 +92,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ask: (question: string, page_text: string, page_num?: number, doc_id?: string) =>
             ipcRenderer.invoke('ai:ask', { question, page_text, page_num, doc_id }),
         defineWord: (word: string, context_sentence: string, full_context?: string) =>
-            ipcRenderer.invoke('ai:defineWord', { word, context_sentence, full_context })
+            ipcRenderer.invoke('ai:defineWord', { word, context_sentence, full_context }),
+        transcribeAudio: (audio_bytes: number[], mime_type?: string) =>
+            ipcRenderer.invoke('ai:transcribeAudio', { audio_bytes, mime_type })
     },
 
     // Preferences
@@ -126,6 +134,9 @@ declare global {
                 getPage: (doc_id: string, page_num: number) => Promise<Buffer>;
                 getText: (doc_id: string, page_num: number) => Promise<{ text: string }>;
                 getWords: (doc_id: string, page_num: number) => Promise<{ words: any[] }>;
+                getTOC: (doc_id: string) => Promise<{ toc: any[] }>;
+                getTOCQuick: (doc_id: string) => Promise<{ toc: any[]; method?: string }>;
+                getTOCEnhanced: (doc_id: string) => Promise<{ toc: any[]; method?: string }>;
                 updatePosition: (doc_id: string, page: number) => Promise<any>;
             };
             tts: {
@@ -139,11 +150,13 @@ declare global {
                 getByPage: (doc_id: string, page_num: number) => Promise<any[]>;
                 create: (doc_id: string, page_num: number, content: string, position_x?: number, position_y?: number) => Promise<any>;
                 update: (note_id: string, content: string) => Promise<any>;
+                updatePosition: (note_id: string, position_x: number, position_y: number, anchor_text?: string, page_num?: number) => Promise<any>;
                 delete: (note_id: string) => Promise<any>;
             };
             ai: {
                 ask: (question: string, page_text: string, page_num?: number, doc_id?: string) => Promise<any>;
                 defineWord: (word: string, context_sentence: string, full_context?: string) => Promise<any>;
+                transcribeAudio: (audio_bytes: number[], mime_type?: string) => Promise<any>;
             };
             prefs: {
                 get: (key: string) => Promise<any>;

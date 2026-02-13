@@ -4,11 +4,17 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
+let createCanvas = null;
+try {
+  ({ createCanvas } = require('canvas'));
+} catch (_) {
+  createCanvas = null;
+}
+
 const root = path.resolve(__dirname, '..');
 const outDir = path.join(root, 'build', 'icons');
 const iconsetDir = path.join(outDir, 'icon.iconset');
 const svgPath = path.join(root, 'renderer', 'assets', 'icons', 'clara-logo.svg');
-const taskbarSvgPath = path.join(root, 'renderer', 'assets', 'icons', 'clara-taskbar.svg');
 
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -35,7 +41,91 @@ function runMagick(args) {
   run('convert', args);
 }
 
+function roundedRectPath(ctx, x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+function drawClaraIcon(size) {
+  if (!createCanvas) return null;
+  const s = size / 1024;
+  const c = createCanvas(size, size);
+  const ctx = c.getContext('2d');
+  const visualScale = 0.9;
+  const inset = (size * (1 - visualScale)) / 2;
+
+  ctx.save();
+  ctx.translate(inset, inset);
+  ctx.scale(visualScale, visualScale);
+
+  // Outer rounded square background.
+  roundedRectPath(ctx, 0, 0, size, size, 216 * s);
+  ctx.fillStyle = '#EAF2FF';
+  ctx.fill();
+
+  // Paper.
+  roundedRectPath(ctx, 220 * s, 170 * s, 596 * s, 700 * s, 76 * s);
+  ctx.fillStyle = 'rgba(159,176,203,0.28)';
+  ctx.fill();
+
+  roundedRectPath(ctx, 214 * s, 164 * s, 596 * s, 700 * s, 76 * s);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fill();
+  ctx.lineWidth = Math.max(4 * s, 1.5);
+  ctx.strokeStyle = '#8FA4C3';
+  ctx.stroke();
+
+  // Folded corner.
+  ctx.beginPath();
+  ctx.moveTo(702 * s, 164 * s);
+  ctx.lineTo(810 * s, 164 * s);
+  ctx.lineTo(810 * s, 272 * s);
+  ctx.quadraticCurveTo(772 * s, 260 * s, 746 * s, 234 * s);
+  ctx.quadraticCurveTo(720 * s, 208 * s, 702 * s, 164 * s);
+  ctx.closePath();
+  ctx.fillStyle = '#E6EEFA';
+  ctx.fill();
+
+  // Text lines.
+  const lines = [
+    [322, 304, 384, 24],
+    [322, 372, 332, 24],
+    [322, 440, 372, 24],
+    [322, 508, 286, 24],
+    [322, 576, 354, 24],
+    [322, 644, 262, 24]
+  ];
+  ctx.fillStyle = '#A8BAD7';
+  for (const [x, y, w, h] of lines) {
+    roundedRectPath(ctx, x * s, y * s, w * s, h * s, 12 * s);
+    ctx.fill();
+  }
+
+  // Highlight word.
+  roundedRectPath(ctx, 360 * s, 430 * s, 184 * s, 48 * s, 24 * s);
+  ctx.fillStyle = '#F7D35F';
+  ctx.fill();
+
+  ctx.restore();
+  return c;
+}
+
 function renderPng(size, outFile) {
+  const canvas = drawClaraIcon(size);
+  if (canvas) {
+    fs.writeFileSync(outFile, canvas.toBuffer('image/png'));
+    return;
+  }
   runMagick(['-background', 'none', svgPath, '-resize', `${size}x${size}`, outFile]);
 }
 
@@ -71,10 +161,18 @@ function generateIcns() {
   try {
     run('iconutil', ['-c', 'icns', iconsetDir, '-o', icnsOut]);
   } catch (err) {
-    if (fs.existsSync(icnsOut)) {
-      fs.unlinkSync(icnsOut);
+    console.warn('[icons] iconutil failed, trying ImageMagick fallback:', err.message);
+    try {
+      if (fs.existsSync(icnsOut)) {
+        fs.unlinkSync(icnsOut);
+      }
+      runMagick([path.join(outDir, 'icon_1024x1024.png'), icnsOut]);
+    } catch (fallbackErr) {
+      if (fs.existsSync(icnsOut)) {
+        fs.unlinkSync(icnsOut);
+      }
+      console.warn('[icons] icns fallback failed, skipping icns:', fallbackErr.message);
     }
-    console.warn('[icons] iconutil failed, skipping icns:', err.message);
   }
 }
 
@@ -90,19 +188,14 @@ function generateIco() {
 }
 
 function generateTaskbarIcon() {
-  if (!fs.existsSync(taskbarSvgPath)) return;
-  renderPngFrom(taskbarSvgPath, 512, path.join(outDir, 'dock_icon_512x512.png'));
-}
-
-function renderPngFrom(sourceSvg, size, outFile) {
-  runMagick(['-background', 'none', sourceSvg, '-resize', `${size}x${size}`, outFile]);
+  // Keep dock/taskbar icon consistent with primary app icon.
+  fs.copyFileSync(
+    path.join(outDir, 'icon_512x512.png'),
+    path.join(outDir, 'dock_icon_512x512.png')
+  );
 }
 
 function main() {
-  if (!fs.existsSync(svgPath)) {
-    console.error(`[icons] Missing source SVG at ${svgPath}`);
-    process.exit(1);
-  }
   generatePngs();
   generateIcns();
   generateIco();

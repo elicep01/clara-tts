@@ -12,12 +12,19 @@
     "start": "npm run build && env -u ELECTRON_RUN_AS_NODE electron .",
     "quick": "env -u ELECTRON_RUN_AS_NODE electron .",
     "watch": "tsc -p tsconfig.main.json --watch & tsc -p tsconfig.preload.json --watch",
-    "dev": "npm run build && env -u ELECTRON_RUN_AS_NODE electron ."
+    "dev": "npm run build && env -u ELECTRON_RUN_AS_NODE electron .",
+    "dist:mac": "npm run build && electron-builder --mac dmg --publish never",
+    "dist:mac:arm64": "npm run build && electron-builder --mac dmg --arm64 --publish never",
+    "dist:mac:x64": "npm run build && electron-builder --mac dmg --x64 --publish never",
+    "dist:mac:universal": "npm run build && electron-builder --mac dmg --universal --publish never",
+    "dist:mac:clickable": "npm run dist:mac:universal && node scripts/prepare-dmg-link.js",
+    "dist:dir": "npm run build && electron-builder --dir --publish never"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.8",
     "@types/node": "^20.10.0",
     "electron": "^28.0.0",
+    "electron-builder": "^24.13.3",
     "electron-rebuild": "^3.2.9",
     "typescript": "^5.3.3"
   },
@@ -29,5 +36,61 @@
     "pdfjs-dist": "^3.11.174",
     "socket.io": "^4.6.0",
     "uuid": "^9.0.1"
+  },
+  "build": {
+    "appId": "com.clara.reader",
+    "productName": "Clara",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**",
+      "node_modules/canvas/**"
+    ],
+    "files": [
+      "dist/**/*",
+      "renderer/**/*",
+      "build/icons/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "category": "public.app-category.education",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icons/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}-Installer-${arch}.${ext}",
+      "title": "${productName} ${version}",
+      "backgroundColor": "#f5f9ff",
+      "window": {
+        "width": 620,
+        "height": 420
+      },
+      "contents": [
+        {
+          "x": 170,
+          "y": 220,
+          "type": "file"
+        },
+        {
+          "x": 450,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    }
   }
 }

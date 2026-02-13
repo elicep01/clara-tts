@@ -129,6 +129,30 @@ Rules:
     }
 }
 
+export async function transcribeAudioWithGemini(audioBuffer: Buffer, mimeType: string = 'audio/webm'): Promise<string> {
+    if (!audioBuffer || audioBuffer.length === 0) {
+        throw new Error('No audio data provided');
+    }
+
+    const base64Audio = audioBuffer.toString('base64');
+    const prompt = 'Transcribe this spoken note exactly. Keep punctuation natural and do not add extra commentary.';
+
+    const response = await callGeminiAPIWithParts([
+        { text: prompt },
+        {
+            inlineData: {
+                mimeType,
+                data: base64Audio
+            }
+        }
+    ], {
+        maxOutputTokens: 900,
+        temperature: 0.1
+    });
+
+    return String(response || '').trim();
+}
+
 function extractJSON(response: string, word: string): any | null {
     // Try multiple extraction methods
     let cleanResponse = response.trim();
@@ -185,16 +209,26 @@ function extractJSON(response: string, word: string): any | null {
 }
 
 function callGeminiAPI(prompt: string): Promise<string> {
+    return callGeminiAPIWithParts(
+        [{ text: prompt }],
+        {
+            maxOutputTokens: 500,
+            temperature: 0.7
+        }
+    );
+}
+
+function callGeminiAPIWithParts(parts: any[], generationConfig: { maxOutputTokens?: number; temperature?: number } = {}): Promise<string> {
     return new Promise((resolve, reject) => {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 
         const data = JSON.stringify({
             contents: [{
-                parts: [{ text: prompt }]
+                parts
             }],
             generationConfig: {
-                maxOutputTokens: 500,
-                temperature: 0.7
+                maxOutputTokens: generationConfig.maxOutputTokens ?? 500,
+                temperature: generationConfig.temperature ?? 0.7
             }
         });
 

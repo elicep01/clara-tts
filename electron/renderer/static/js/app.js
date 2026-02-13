@@ -248,6 +248,7 @@ class Clara {
         modal.innerHTML = `
             <div class="modal-content" style="max-width: 600px; background: white; border-radius: 8px; padding: 32px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
                 <div class="first-launch-header" style="text-align: center; margin-bottom: 24px;">
+                    <img src="assets/icons/clara-logo.svg" alt="Clara" style="width: 56px; height: 56px; border-radius: 14px; margin: 0 auto 12px; display: block;" />
                     <h1 style="margin: 0 0 8px 0; font-size: 28px; color: #333;">Welcome to Clara</h1>
                     <p style="margin: 0; color: #666; font-size: 16px;">Your intelligent reading companion</p>
                 </div>
@@ -312,8 +313,11 @@ class Clara {
         this.downloadBaseModel(baseModel.id);
 
         // Handle skip button
-        document.getElementById('btn-skip-setup').addEventListener('click', () => {
+        document.getElementById('btn-skip-setup').addEventListener('click', async () => {
             if (confirm('Clara works best with AI features enabled. Skip setup anyway?')) {
+                try {
+                    await fetch('/mark-first-launch-complete', { method: 'POST' });
+                } catch (_) {}
                 modal.remove();
                 this.init();
             }
@@ -453,7 +457,10 @@ class Clara {
             this.checkFirstLaunch();
         });
 
-        document.getElementById('btn-continue-without').addEventListener('click', () => {
+        document.getElementById('btn-continue-without').addEventListener('click', async () => {
+            try {
+                await fetch('/mark-first-launch-complete', { method: 'POST' });
+            } catch (_) {}
             modal.remove();
             this.init();
         });

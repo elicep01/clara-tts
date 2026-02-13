@@ -47,15 +47,19 @@ export class NavigationManager {
         const zoomControls = document.getElementById('zoom-controls');
         const qaToggle = document.getElementById('btn-toggle-qa');
         const notesToggle = document.getElementById('btn-toggle-notes');
+        const studyToggle = document.getElementById('btn-study-mode');
         const questionSection = document.getElementById('question-section');
         if (viewName === 'viewer') {
             zoomControls.classList.remove('hidden');
             if (qaToggle) qaToggle.classList.remove('hidden');
             notesToggle.classList.remove('hidden');
+            if (studyToggle) studyToggle.classList.remove('hidden');
+            this.clara.notes.syncStudyModeUI();
         } else {
             zoomControls.classList.add('hidden');
             if (qaToggle) qaToggle.classList.add('hidden');
             notesToggle.classList.add('hidden');
+            if (studyToggle) studyToggle.classList.add('hidden');
             this.clara.notes.hideSidebar();
             // Hide Q&A section when leaving viewer
             if (questionSection) questionSection.classList.add('hidden');
@@ -80,10 +84,21 @@ export class NavigationManager {
 
             // Show/hide zoom controls
             const zoomControls = document.getElementById('zoom-controls');
+            const qaToggle = document.getElementById('btn-toggle-qa');
+            const notesToggle = document.getElementById('btn-toggle-notes');
+            const studyToggle = document.getElementById('btn-study-mode');
             if (previousView === 'viewer') {
                 zoomControls.classList.remove('hidden');
+                if (qaToggle) qaToggle.classList.remove('hidden');
+                if (notesToggle) notesToggle.classList.remove('hidden');
+                if (studyToggle) studyToggle.classList.remove('hidden');
+                this.clara.notes.syncStudyModeUI();
             } else {
                 zoomControls.classList.add('hidden');
+                if (qaToggle) qaToggle.classList.add('hidden');
+                if (notesToggle) notesToggle.classList.add('hidden');
+                if (studyToggle) studyToggle.classList.add('hidden');
+                this.clara.notes.hideSidebar();
             }
 
             // Reload library when going back to it
@@ -107,10 +122,15 @@ export class NavigationManager {
         this.state.viewHistory = [];
         this.state.currentView = 'library';
         this.state.currentFolderId = null;
+        this.state.viewingTrash = false;
 
         document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
         document.getElementById('library-view').classList.add('active');
         document.getElementById('zoom-controls').classList.add('hidden');
+        document.getElementById('btn-toggle-qa')?.classList.add('hidden');
+        document.getElementById('btn-toggle-notes')?.classList.add('hidden');
+        document.getElementById('btn-study-mode')?.classList.add('hidden');
+        this.clara.notes.hideSidebar();
 
         this.clara.library.load();
         this.updateTitle();

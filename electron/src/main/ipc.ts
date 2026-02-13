@@ -3,9 +3,9 @@ import { getDatabase, getDocumentsFolder } from './database';
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
-import { extractPDFInfo, renderPDFPage, extractPDFText, extractPDFWords } from './pdf';
+import { extractPDFInfo, renderPDFPage, extractPDFText, extractPDFWords, extractTableOfContents } from './pdf';
 import { generateAudioWithTimings, getWordTimings, getAvailableVoices, generatePreviewAudio } from './tts';
-import { askGemini, defineWord } from './ai';
+import { askGemini, defineWord, transcribeAudioWithGemini } from './ai';
 
 function getFolderTreeIds(db: any, folderId: string): string[] {
     const rows = db.prepare(`
@@ -107,6 +107,23 @@ function permanentlyDeleteFolderTree(db: any, folderId: string): number {
         .run(...treeIds, ...treeIds);
     db.prepare(`DELETE FROM folders WHERE id IN (${marks})`).run(...treeIds);
     return treeIds.length;
+}
+
+function buildLocalAnswerFallback(question: string, contextText: string, docTitle: string, pageNum?: number): string {
+    const safeQuestion = String(question || '').trim();
+    const text = String(contextText || '').replace(/\s+/g, ' ').trim();
+    const excerpt = text.length > 700 ? `${text.slice(0, 700)}...` : text;
+    const pageLabel = Number.isFinite(pageNum as any) ? `page ${pageNum}` : 'the current page';
+    if (!excerpt) {
+        return `I couldn't reach the AI service right now. I also couldn't extract enough text from ${pageLabel} of "${docTitle || 'this document'}". Try again in a moment or ask a simpler question.`;
+    }
+    return [
+        `I couldn't reach the AI service right now, so here's a best-effort answer from ${pageLabel} of "${docTitle || 'this document'}".`,
+        '',
+        `Question: ${safeQuestion || 'No question provided.'}`,
+        '',
+        `Relevant excerpt: ${excerpt}`
+    ].join('\n');
 }
 
 export function setupIPCHandlers(ipc: typeof ipcMain): void {
@@ -307,7 +324,7 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
             id: doc.id,
             filename: doc.original_filename,
             page_count: info.pageCount,
-            current_page: doc.current_page || 1,  // Return last read position
+            current_page: doc.current_page ?? 0,  // Zero-based page index for renderer
             is_pdf: true
         };
     });
@@ -353,6 +370,36 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
         db.prepare('UPDATE documents SET current_page = ?, last_accessed = CURRENT_TIMESTAMP WHERE id = ?')
             .run(page, doc_id);
         return { success: true };
+    });
+
+    ipc.handle('document:getTOC', async (_event: any, { doc_id }: any) => {
+        const db = getDatabase();
+        const doc = db.prepare('SELECT file_path FROM documents WHERE id = ?').get(doc_id) as any;
+        if (!doc) {
+            throw new Error('Document not found');
+        }
+        const toc = await extractTableOfContents(doc.file_path, { includeFallback: true, maxFallbackPages: 320 });
+        return { toc };
+    });
+
+    ipc.handle('document:getTOCQuick', async (_event: any, { doc_id }: any) => {
+        const db = getDatabase();
+        const doc = db.prepare('SELECT file_path FROM documents WHERE id = ?').get(doc_id) as any;
+        if (!doc) {
+            throw new Error('Document not found');
+        }
+        const toc = await extractTableOfContents(doc.file_path, { includeFallback: false });
+        return { toc, method: 'outline' };
+    });
+
+    ipc.handle('document:getTOCEnhanced', async (_event: any, { doc_id }: any) => {
+        const db = getDatabase();
+        const doc = db.prepare('SELECT file_path FROM documents WHERE id = ?').get(doc_id) as any;
+        if (!doc) {
+            throw new Error('Document not found');
+        }
+        const toc = await extractTableOfContents(doc.file_path, { includeFallback: true, maxFallbackPages: 320 });
+        return { toc, method: 'outline+heuristic' };
     });
 
     // ============================================
@@ -415,10 +462,13 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
         return { success: true };
     });
 
-    ipc.handle('notes:updatePosition', async (_event: any, { note_id, position_x, position_y, anchor_text }: any) => {
+    ipc.handle('notes:updatePosition', async (_event: any, { note_id, position_x, position_y, anchor_text, page_num }: any) => {
         const db = getDatabase();
-        db.prepare('UPDATE notes SET position_x = ?, position_y = ?, anchor_text = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-            .run(position_x, position_y, anchor_text || null, note_id);
+        const nextPageNum = Number.isFinite(page_num)
+            ? Number(page_num)
+            : (db.prepare('SELECT page_num FROM notes WHERE id = ?').get(note_id) as any)?.page_num;
+        db.prepare('UPDATE notes SET page_num = ?, position_x = ?, position_y = ?, anchor_text = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+            .run(nextPageNum, position_x, position_y, anchor_text || null, note_id);
         return { success: true };
     });
 
@@ -468,9 +518,10 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
             docTitle = doc.original_filename?.replace(/\.pdf$/i, '') || 'Unknown Document';
 
             // ALWAYS extract fresh text from the actual PDF file
-            const pageToExtract = page_num || 1;
+            const pageToExtract = Number.isFinite(page_num) ? Number(page_num) : 1;
+            const pageIndex = Math.max(0, pageToExtract - 1);
             console.log(`[AI] Extracting text from "${doc.original_filename}", page ${pageToExtract}`);
-            actualPageText = await extractPDFText(filePath, pageToExtract);
+            actualPageText = await extractPDFText(filePath, pageIndex);
             console.log(`[AI] Extracted ${actualPageText.length} characters`);
 
             if (!actualPageText || actualPageText.length < 80) {
@@ -482,7 +533,7 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
 
                 const chunks: string[] = [];
                 for (const p of nearbyPages) {
-                    const txt = await extractPDFText(filePath, p);
+                    const txt = await extractPDFText(filePath, p - 1);
                     if (txt && txt.trim().length > 0) {
                         chunks.push(`[Page ${p}] ${txt.trim()}`);
                     }
@@ -500,7 +551,7 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
                 'what is this about', 'summarize the book', 'summarize this book', 'book about'].some(p => questionLower.includes(p));
 
             if (isBookQuestion && pageToExtract !== 1) {
-                firstPageText = await extractPDFText(filePath, 1);
+                firstPageText = await extractPDFText(filePath, 0);
             }
 
             // Ensure we always have at least a minimal context payload.
@@ -513,13 +564,37 @@ export function setupIPCHandlers(ipc: typeof ipcMain): void {
         }
 
         console.log(`[AI] Sending to Gemini - doc: "${docTitle}", page: ${page_num}, text: ${actualPageText.length} chars`);
-        const result = await askGemini(question, actualPageText, page_num, doc_id, docTitle, firstPageText);
-        return result;
+        try {
+            const result = await askGemini(question, actualPageText, page_num, doc_id, docTitle, firstPageText);
+            return result;
+        } catch (err) {
+            console.error('[AI] Gemini unavailable, returning local fallback answer:', err);
+            return {
+                answer: buildLocalAnswerFallback(question, actualPageText || firstPageText || '', docTitle, page_num),
+                fallback_answer: true
+            };
+        }
     });
 
     ipc.handle('ai:defineWord', async (_event: any, { word, context_sentence, full_context }: any) => {
         const definition = await defineWord(word, context_sentence, full_context);
         return definition;
+    });
+
+    ipc.handle('ai:transcribeAudio', async (_event: any, { audio_bytes, mime_type }: any) => {
+        const bytes = Array.isArray(audio_bytes) ? audio_bytes : [];
+        if (bytes.length === 0) {
+            return { error: 'No audio provided' };
+        }
+
+        try {
+            const buffer = Buffer.from(bytes);
+            const transcript = await transcribeAudioWithGemini(buffer, mime_type || 'audio/webm');
+            return { transcript };
+        } catch (err: any) {
+            console.error('[AI] Audio transcription failed:', err);
+            return { error: err?.message || 'Transcription failed' };
+        }
     });
 
     // ============================================

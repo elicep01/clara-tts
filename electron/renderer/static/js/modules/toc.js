@@ -6,6 +6,8 @@ export class TOCManager {
         this.clara = clara;
         this.state = clara.state;
         this.tocData = [];
+        this.loading = false;
+        this.loadToken = 0;
     }
 
     setup() {
@@ -44,11 +46,21 @@ export class TOCManager {
             console.log('[TOC] Showing empty state');
             document.getElementById('toc-list').classList.add('hidden');
             document.getElementById('toc-empty').classList.remove('hidden');
+            if (this.state.viewerDocId && !this.loading) {
+                this.load(this.state.viewerDocId).catch(err => console.error('[TOC] Load on demand failed:', err));
+            }
         }
     }
 
     async load(docId) {
+        const token = ++this.loadToken;
+        this.loading = true;
         this.tocData = [];
+        const emptyState = document.getElementById('toc-empty');
+        if (emptyState) {
+            emptyState.querySelector('p').textContent = 'Loading table of contents...';
+            emptyState.querySelector('span').textContent = 'Analyzing document structure';
+        }
 
         try {
             // STEP 1: Get quick TOC immediately (< 0.5s)
@@ -60,6 +72,7 @@ export class TOCManager {
 
             const quickElapsed = performance.now() - quickStart;
             console.log(`[TOC] Quick TOC loaded in ${quickElapsed.toFixed(0)}ms`);
+            if (token !== this.loadToken) return;
 
             if (quickData.toc && quickData.toc.length > 0) {
                 this.tocData = quickData.toc;
@@ -68,23 +81,8 @@ export class TOCManager {
             }
 
             // STEP 2: Get enhanced TOC in background
-            console.log('[TOC] Loading enhanced TOC in background...');
-            const enhancedStart = performance.now();
-
-            const enhancedRes = await fetch(`/document/${docId}/toc-enhanced`, {
-                method: 'POST'
-            });
-            const enhancedData = await enhancedRes.json();
-
-            const enhancedElapsed = performance.now() - enhancedStart;
-            console.log(`[TOC] Enhanced TOC loaded in ${enhancedElapsed.toFixed(0)}ms (method: ${enhancedData.method})`);
-
-            if (enhancedData.toc && enhancedData.toc.length >= this.tocData.length) {
-                // Better or equal TOC available, smoothly update
-                this.tocData = enhancedData.toc;
-                this.render();
-                console.log(`[TOC] Updated with ${this.tocData.length} enhanced TOC items`);
-            }
+            this.loading = false;
+            this.loadEnhancedTOC(docId, token);
 
         } catch (err) {
             console.error('[TOC] Error loading TOC:', err);
@@ -94,6 +92,7 @@ export class TOCManager {
                 console.log('[TOC] Falling back to regular TOC...');
                 const res = await fetch(`/document/${docId}/toc`);
                 const data = await res.json();
+                if (token !== this.loadToken) return;
 
                 if (data.toc && data.toc.length > 0) {
                     this.tocData = data.toc;
@@ -104,6 +103,43 @@ export class TOCManager {
                 console.error('[TOC] Fallback also failed:', fallbackErr);
                 this.tocData = [];
             }
+        } finally {
+            this.loading = false;
+            if (emptyState && this.tocData.length === 0) {
+                emptyState.querySelector('p').textContent = 'No table of contents';
+                emptyState.querySelector('span').textContent = 'This document has no detectable structure';
+            }
+        }
+    }
+
+    async loadEnhancedTOC(docId, token) {
+        console.log('[TOC] Loading enhanced TOC in background...');
+        const enhancedStart = performance.now();
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 25000);
+            const enhancedRes = await fetch(`/document/${docId}/toc-enhanced`, {
+                method: 'POST',
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
+            const enhancedData = await enhancedRes.json();
+            const enhancedElapsed = performance.now() - enhancedStart;
+            console.log(`[TOC] Enhanced TOC loaded in ${enhancedElapsed.toFixed(0)}ms (method: ${enhancedData.method})`);
+            if (token !== this.loadToken) return;
+
+            if (enhancedData.toc && enhancedData.toc.length > 0) {
+                this.tocData = enhancedData.toc;
+                this.render();
+                console.log(`[TOC] Updated with ${this.tocData.length} enhanced TOC items`);
+            }
+        } catch (err) {
+            if (err?.name === 'AbortError') {
+                console.warn('[TOC] Enhanced TOC timed out; keeping quick TOC');
+                return;
+            }
+            console.error('[TOC] Enhanced TOC failed:', err);
         }
     }
 
@@ -131,6 +167,7 @@ export class TOCManager {
 
         const div = document.createElement('div');
         div.className = `toc-item depth-${Math.min(depth, 3)}`;
+        div.dataset.level = String(item.level || 1);
 
         div.innerHTML = `
             <span class="toc-title">${this.clara.ui.escapeHtml(item.title)}</span>
@@ -147,25 +184,23 @@ export class TOCManager {
         return div;
     }
 
-    navigateToHeading(item) {
+    async navigateToHeading(item) {
         // Navigate to the page first
         const pageNum = item.page;
         const yPosition = item.y_position || 0;
+        if (pageNum === undefined || pageNum === null) return;
 
         // Check if we're in continuous mode
         const targetPage = document.getElementById(`page-${pageNum}`);
 
         if (targetPage) {
-            // In continuous mode, scroll to the exact position on the page
-            const documentDisplay = document.getElementById('document-display');
-            const pageTop = targetPage.offsetTop;
-            const pageHeight = targetPage.offsetHeight;
-            const scrollPosition = pageTop + (pageHeight * yPosition);
+            // Ensure page is actually loaded before computing y-based offset
+            if (targetPage.dataset.loaded !== 'true' && typeof this.clara.viewer.loadSinglePageLazy === 'function') {
+                await this.clara.viewer.loadSinglePageLazy(pageNum);
+            }
 
-            documentDisplay.scrollTo({
-                top: scrollPosition,
-                behavior: 'smooth'
-            });
+            // In continuous mode, use viewer's zoom-aware scrolling.
+            this.clara.viewer.scrollToContinuousPage(pageNum, yPosition, 'smooth');
 
             // Update current page state
             this.state.viewerCurrentPage = pageNum;

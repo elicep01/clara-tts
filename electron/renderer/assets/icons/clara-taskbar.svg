@@ -1,26 +1,12 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <filter id="lineGlow" x="120" y="280" width="784" height="464" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
-      <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
-      <feGaussianBlur stdDeviation="18" result="effect1_foregroundBlur"/>
-    </filter>
-    <linearGradient id="lineBlue" x1="220" y1="330" x2="790" y2="700" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#7FB7FF"/>
-      <stop offset="1" stop-color="#4D86CF"/>
-    </linearGradient>
-  </defs>
+  <rect x="226" y="184" width="572" height="672" rx="70" fill="#FFFFFF"/>
+  <path d="M690 184H798V292C798 292 760 278 735 252C709 226 690 184 690 184Z" fill="#EAF1FD"/>
 
-  <!-- Transparent background, line-only dock icon -->
-  <g opacity="0.95">
-    <rect x="220" y="332" width="584" height="52" rx="26" fill="url(#lineBlue)"/>
-    <rect x="220" y="456" width="508" height="52" rx="26" fill="url(#lineBlue)"/>
-    <rect x="220" y="580" width="562" height="52" rx="26" fill="url(#lineBlue)"/>
-  </g>
+  <rect x="322" y="324" width="384" height="24" rx="12" fill="#A7BAD7"/>
+  <rect x="322" y="392" width="332" height="24" rx="12" fill="#A7BAD7"/>
+  <rect x="322" y="460" width="372" height="24" rx="12" fill="#A7BAD7"/>
+  <rect x="322" y="528" width="286" height="24" rx="12" fill="#A7BAD7"/>
+  <rect x="322" y="596" width="354" height="24" rx="12" fill="#A7BAD7"/>
 
-  <!-- Active highlighted line -->
-  <g filter="url(#lineGlow)">
-    <rect x="318" y="456" width="230" height="52" rx="26" fill="#FFD56A"/>
-  </g>
-  <rect x="318" y="456" width="230" height="52" rx="26" fill="#FFD56A"/>
+  <rect x="360" y="448" width="184" height="48" rx="24" fill="#F7D35F"/>
 </svg>

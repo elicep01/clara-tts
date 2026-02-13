@@ -53,7 +53,8 @@ export const createInitialState = () => ({
     currentNote: null,
     lastQuestion: '',
     lastAnswer: '',
-    draggingNote: null
+    draggingNote: null,
+    studyMode: false
 });
 
 // State class for reactive updates (optional enhancement)

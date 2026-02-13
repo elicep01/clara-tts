@@ -1,15 +1,31 @@
-import { app, BrowserWindow, ipcMain, protocol } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { initDatabase } from './database';
 import { setupIPCHandlers } from './ipc';
-import { Server } from 'socket.io';
 import { renderPDFPage } from './pdf';
 import { getDatabase } from './database';
 import { initializeOllama, shutdownOllama } from './ollama-manager';
 
 let mainWindow: BrowserWindow | null = null;
-let io: Server | null = null;
+const imageRenderCache = new Map<string, Buffer>();
+const MAX_CACHE_ITEMS = 160;
+
+function getCachedImage(key: string): Buffer | null {
+    const value = imageRenderCache.get(key);
+    if (!value) return null;
+    imageRenderCache.delete(key);
+    imageRenderCache.set(key, value);
+    return value;
+}
+
+function setCachedImage(key: string, value: Buffer) {
+    imageRenderCache.set(key, value);
+    if (imageRenderCache.size > MAX_CACHE_ITEMS) {
+        const oldest = imageRenderCache.keys().next().value;
+        if (oldest) imageRenderCache.delete(oldest);
+    }
+}
 
 function getAppIconPath() {
     const icoPath = path.join(__dirname, '../../build/icons/icon.ico');
@@ -52,17 +68,31 @@ function createWindow() {
         // Check if this is a document page/thumbnail request
         const match = url.match(/\/document\/([^\/]+)\/(page|thumbnail)\/(\d+)/);
         if (match) {
-            const [, doc_id, , page_num] = match;
-            console.log('[Protocol] Rendering PDF page:', doc_id, page_num);
+            const [, doc_id, kind, page_num] = match;
+            console.log('[Protocol] Rendering PDF page:', doc_id, page_num, kind);
 
             try {
                 const db = getDatabase();
                 const doc = db.prepare('SELECT file_path FROM documents WHERE id = ?').get(doc_id) as any;
 
                 if (doc) {
-                    const imageBuffer = await renderPDFPage(doc.file_path, parseInt(page_num));
+                    const pageIndex = parseInt(page_num, 10);
+                    const cacheKey = `${doc_id}:${kind}:${pageIndex}`;
+                    const cached = getCachedImage(cacheKey);
+                    if (cached) {
+                        return new Response(cached, {
+                            headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' }
+                        });
+                    }
+
+                    const imageBuffer = await renderPDFPage(
+                        doc.file_path,
+                        pageIndex,
+                        { scale: kind === 'thumbnail' ? 0.45 : 1.5 }
+                    );
+                    setCachedImage(cacheKey, imageBuffer);
                     return new Response(imageBuffer, {
-                        headers: { 'Content-Type': 'image/png' }
+                        headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' }
                     });
                 }
             } catch (error) {
@@ -105,6 +135,14 @@ function createWindow() {
         } catch (error) {
             return new Response('File not found', { status: 404 });
         }
+    });
+
+    mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+        if (permission === 'media') {
+            callback(true);
+            return;
+        }
+        callback(false);
     });
 
     // Load the renderer
@@ -172,11 +210,7 @@ app.on('activate', () => {
 
 // Handle app quitting
 app.on('before-quit', () => {
-    // Cleanup
-    if (io) {
-        io.close();
-    }
     shutdownOllama();
 });
 
-export { mainWindow, io };
+export { mainWindow };

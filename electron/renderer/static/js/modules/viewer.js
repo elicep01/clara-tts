@@ -6,6 +6,16 @@ export class ViewerManager {
         this.clara = clara;
         this.state = clara.state;
         this.browseWords = [];
+        this.scrollRafPending = false;
+        this.scrollSettleTimer = null;
+        this.lastScrollCandidate = null;
+        this.lastScrollCandidateAt = 0;
+        this.lastThumbnailAutoScrollAt = 0;
+        this.scrollSyncLockUntil = 0;
+    }
+
+    lockScrollSync(ms = 260) {
+        this.scrollSyncLockUntil = performance.now() + ms;
     }
 
     setup() {
@@ -23,19 +33,25 @@ export class ViewerManager {
 
         // Scroll-based page navigation and tracking
         const documentDisplay = document.getElementById('document-display');
-        let scrollTimeout = null;
         let lastScrollTop = 0;
 
         documentDisplay.addEventListener('scroll', () => {
-            if (scrollTimeout) clearTimeout(scrollTimeout);
+            if (this.scrollRafPending) return;
+            this.scrollRafPending = true;
 
-            scrollTimeout = setTimeout(() => {
+            requestAnimationFrame(() => {
+                this.scrollRafPending = false;
+
                 const scrollTop = documentDisplay.scrollTop;
                 const scrollHeight = documentDisplay.scrollHeight;
                 const clientHeight = documentDisplay.clientHeight;
 
-                // In continuous mode (always active now), track which page is currently visible
+                // In continuous mode (always active now), track page on every animation frame.
                 if (document.querySelector('.continuous-pages-container')) {
+                    if (performance.now() < this.scrollSyncLockUntil) {
+                        lastScrollTop = scrollTop;
+                        return;
+                    }
                     this.updateCurrentPageFromScroll();
                     lastScrollTop = scrollTop;
                     return;
@@ -65,7 +81,7 @@ export class ViewerManager {
                 }
 
                 lastScrollTop = scrollTop;
-            }, 150);
+            });
         });
     }
 
@@ -119,7 +135,8 @@ export class ViewerManager {
             this.state.viewerZoom = 0.75;  // Default zoom 75%
 
             // Restore last page position from database or reading session
-            let startPage = info.current_page ?? 0;
+            let startPage = Number.parseInt(`${info.current_page ?? 0}`, 10);
+            if (!Number.isFinite(startPage)) startPage = 0;
             if (this.state.readingSession && this.state.readingSession.docId === docId) {
                 startPage = this.state.readingSession.pageNum;
             }
@@ -137,22 +154,12 @@ export class ViewerManager {
             this.clara.ui.hideLoading();
 
             // Load main page FIRST (most important - user can start reading)
+            this.lockScrollSync(700);
             await this.loadPage(startPage);
 
             // Load thumbnails in BACKGROUND (don't block UI)
             this.renderPageThumbnails().catch(err => console.error('[Viewer] Thumbnail error:', err));
-
-            if (startPage > 0) {
-                // Use setTimeout to not block - thumbnails might not be ready yet
-                setTimeout(() => {
-                    document.querySelectorAll('.page-thumb').forEach(el => {
-                        el.classList.remove('active');
-                        if (parseInt(el.dataset.page) === startPage) {
-                            el.classList.add('active');
-                        }
-                    });
-                }, 100);
-            }
+            this.setActiveThumbnail(startPage, false);
 
             this.updateReadButtonText();
 
@@ -161,7 +168,6 @@ export class ViewerManager {
 
             if (this.clara.toc) {
                 this.clara.toc.reset();
-                this.clara.toc.load(docId).catch(err => console.error('[Viewer] TOC error:', err));
             }
 
         } catch (err) {
@@ -194,12 +200,13 @@ export class ViewerManager {
     async renderPageThumbnails() {
         const list = document.getElementById('page-list');
         list.innerHTML = '';
+        const currentPage = Math.max(0, this.state.viewerCurrentPage || 0);
 
         // LAZY LOADING FOR THUMBNAILS
         // Create all thumbnail placeholders instantly
         for (let i = 0; i < this.state.viewerPageCount; i++) {
             const thumb = document.createElement('div');
-            thumb.className = 'page-thumb' + (i === 0 ? ' active' : '');
+            thumb.className = 'page-thumb' + (i === currentPage ? ' active' : '');
             thumb.dataset.page = i;
             thumb.dataset.loaded = 'false';
 
@@ -213,8 +220,10 @@ export class ViewerManager {
         }
 
         if (this.state.isPdf) {
-            // Load first 10 thumbnails immediately
-            for (let i = 0; i < Math.min(10, this.state.viewerPageCount); i++) {
+            // Load only nearby thumbnails first so reading view stays smooth
+            const immediateStart = Math.max(0, currentPage - 1);
+            const immediateEnd = Math.min(this.state.viewerPageCount - 1, currentPage + 1);
+            for (let i = immediateStart; i <= immediateEnd; i++) {
                 const thumb = list.children[i];
                 this.loadThumbnail(thumb, i);
             }
@@ -227,7 +236,7 @@ export class ViewerManager {
     setupLazyThumbnailLoading() {
         const options = {
             root: document.getElementById('page-list'),
-            rootMargin: '200px',
+            rootMargin: '120px',
             threshold: 0
         };
 
@@ -247,8 +256,8 @@ export class ViewerManager {
         }, options);
 
         // Observe thumbnails that aren't loaded yet
-        document.querySelectorAll('.page-thumb').forEach((thumb, i) => {
-            if (i >= 10 && thumb.dataset.loaded === 'false') {
+        document.querySelectorAll('.page-thumb').forEach((thumb) => {
+            if (thumb.dataset.loaded === 'false') {
                 observer.observe(thumb);
             }
         });
@@ -260,7 +269,7 @@ export class ViewerManager {
         thumbEl.dataset.loaded = 'loading';
 
         const img = new Image();
-        img.src = `/document/${this.state.viewerDocId}/thumbnail/${pageNum}`;
+        img.decoding = 'async';
 
         img.onload = () => {
             const placeholder = thumbEl.querySelector('.page-thumb-placeholder');
@@ -275,6 +284,11 @@ export class ViewerManager {
             thumbEl.dataset.loaded = 'error';
             console.error(`Failed to load thumbnail for page ${pageNum}`);
         };
+
+        img.src = `/document/${this.state.viewerDocId}/thumbnail/${pageNum}`;
+        if (img.complete && img.naturalWidth > 0) {
+            img.onload?.();
+        }
     }
 
     async loadPage(pageNum) {
@@ -283,15 +297,30 @@ export class ViewerManager {
 
         if (inContinuousMode) {
             // Already in continuous mode, don't reload - just scroll to the page
-            const targetPage = document.getElementById(`page-${pageNum}`);
-            if (targetPage) {
-                targetPage.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }
+            this.scrollToContinuousPage(pageNum, 0, 'smooth');
             return;
         }
 
         // Always load in continuous mode for seamless scrolling
         return this.loadContinuousPages(pageNum);
+    }
+
+    scrollToContinuousPage(pageNum, yPosition = 0, behavior = 'smooth') {
+        const targetPage = document.getElementById(`page-${pageNum}`);
+        const documentDisplay = document.getElementById('document-display');
+        if (!targetPage || !documentDisplay) return false;
+
+        const zoom = this.state.viewerZoom || 1;
+        const clampedY = Math.max(0, Math.min(1, Number(yPosition) || 0));
+        const pageTop = targetPage.offsetTop;
+        const pageHeight = targetPage.offsetHeight;
+        const scrollTop = (pageTop + (pageHeight * clampedY)) * zoom;
+
+        documentDisplay.scrollTo({
+            top: scrollTop,
+            behavior
+        });
+        return true;
     }
 
     async loadSinglePage(pageNum) {
@@ -302,7 +331,6 @@ export class ViewerManager {
         try {
             if (this.state.isPdf) {
                 const img = new Image();
-                img.src = `/document/${this.state.viewerDocId}/page/${pageNum}`;
 
                 img.onload = async () => {
                     content.innerHTML = '';
@@ -315,6 +343,11 @@ export class ViewerManager {
                     const data = await textRes.json();
                     content.innerHTML = `<div class="text-content">${this.clara.ui.escapeHtml(data.text || 'No content')}</div>`;
                 };
+
+                img.src = `/document/${this.state.viewerDocId}/page/${pageNum}`;
+                if (img.complete && img.naturalWidth > 0) {
+                    img.onload?.();
+                }
             } else {
                 const textRes = await fetch(`/document/${this.state.viewerDocId}/page/${pageNum}/text`);
                 const data = await textRes.json();
@@ -373,10 +406,11 @@ export class ViewerManager {
         await this.loadSinglePageLazy(startPage);
 
         // Scroll to start page IMMEDIATELY after first page loads
-        const targetPage = document.getElementById(`page-${startPage}`);
-        if (targetPage) {
-            targetPage.scrollIntoView({ behavior: 'auto' });
-        }
+        this.lockScrollSync(700);
+        this.scrollToContinuousPage(startPage, 0, 'auto');
+        this.state.viewerCurrentPage = startPage;
+        this.updatePageIndicator();
+        this.setActiveThumbnail(startPage, false);
 
         // Load surrounding pages in BACKGROUND (don't block)
         const surroundingPages = [];
@@ -442,7 +476,6 @@ export class ViewerManager {
             // Return a promise that resolves when image loads
             return new Promise((resolve) => {
                 const img = new Image();
-                img.src = `/document/${this.state.viewerDocId}/page/${i}`;
                 img.dataset.pageNum = i;
 
                 // Clear placeholder
@@ -470,6 +503,11 @@ export class ViewerManager {
                     `;
                     resolve(); // Resolve anyway to not block
                 };
+
+                img.src = `/document/${this.state.viewerDocId}/page/${i}`;
+                if (img.complete && img.naturalWidth > 0) {
+                    img.onload?.();
+                }
             });
         } else {
             // Text document
@@ -516,6 +554,11 @@ export class ViewerManager {
                 const selectedText = window.getSelection().toString().trim();
                 this.clara.contextMenu.showPdf(e, null, selectedText);
             });
+            this.clara.contextMenu.attachPdfLongPress(overlay, () => ({
+                target: overlay,
+                wordIndex: null,
+                selectedText: window.getSelection().toString().trim()
+            }));
 
             img.parentNode.insertBefore(wrapper, img);
             wrapper.appendChild(img);
@@ -545,6 +588,11 @@ export class ViewerManager {
                         const selectedText = window.getSelection().toString().trim();
                         this.clara.contextMenu.showPdf(e, idx, selectedText || word.text);
                     });
+                    this.clara.contextMenu.attachPdfLongPress(box, () => ({
+                        target: box,
+                        wordIndex: idx,
+                        selectedText: window.getSelection().toString().trim() || word.text
+                    }));
 
                     overlay.appendChild(box);
                 }
@@ -577,6 +625,11 @@ export class ViewerManager {
                 const selectedText = window.getSelection().toString().trim();
                 this.clara.contextMenu.showPdf(e, null, selectedText);
             });
+            this.clara.contextMenu.attachPdfLongPress(overlay, () => ({
+                target: overlay,
+                wordIndex: null,
+                selectedText: window.getSelection().toString().trim()
+            }));
 
             img.parentNode.insertBefore(wrapper, img);
             wrapper.appendChild(img);
@@ -604,6 +657,11 @@ export class ViewerManager {
                         const selectedText = window.getSelection().toString().trim();
                         this.clara.contextMenu.showPdf(e, idx, selectedText || word.text);
                     });
+                    this.clara.contextMenu.attachPdfLongPress(box, () => ({
+                        target: box,
+                        wordIndex: idx,
+                        selectedText: window.getSelection().toString().trim() || word.text
+                    }));
 
                     overlay.appendChild(box);
                 }
@@ -614,19 +672,20 @@ export class ViewerManager {
     }
 
     updateCurrentPageFromScroll() {
+        if (performance.now() < this.scrollSyncLockUntil) return;
+
         const documentDisplay = document.getElementById('document-display');
         if (!documentDisplay) return;
 
         const displayRect = documentDisplay.getBoundingClientRect();
         const viewportMiddle = displayRect.top + (displayRect.height / 2);
-
-        // Choose the visible page whose center is closest to viewport center.
-        // This handles zoomed-out views where multiple pages are visible.
         const pages = document.querySelectorAll('.continuous-page');
-        let currentPage = this.state.viewerCurrentPage || 0;
-        let bestDistance = Infinity;
-        let bestVisibleDistance = Infinity;
-        let foundVisiblePage = false;
+        if (!pages.length) return;
+
+        const currentPage = this.state.viewerCurrentPage || 0;
+        let visibleBest = null;
+        let fallbackBest = null;
+        let currentMetrics = null;
 
         pages.forEach((page) => {
             const rect = page.getBoundingClientRect();
@@ -634,47 +693,98 @@ export class ViewerManager {
             const visibleTop = Math.max(rect.top, displayRect.top);
             const visibleBottom = Math.min(rect.bottom, displayRect.bottom);
             const visibleHeight = Math.max(0, visibleBottom - visibleTop);
+            const visibleRatio = rect.height > 0 ? (visibleHeight / rect.height) : 0;
             const pageCenter = rect.top + (rect.height / 2);
             const centerDistance = Math.abs(pageCenter - viewportMiddle);
+            const score = (visibleRatio * 1000) - centerDistance;
+
+            if (!fallbackBest || centerDistance < fallbackBest.centerDistance) {
+                fallbackBest = { pageNum, centerDistance };
+            }
+
+            if (pageNum === currentPage) {
+                currentMetrics = { visibleRatio, centerDistance, visibleHeight };
+            }
 
             if (visibleHeight > 0) {
-                foundVisiblePage = true;
-                if (centerDistance < bestVisibleDistance) {
-                    bestVisibleDistance = centerDistance;
-                    currentPage = pageNum;
+                if (!visibleBest || score > visibleBest.score) {
+                    visibleBest = { pageNum, centerDistance, visibleRatio, score };
                 }
             }
-
-            if (centerDistance < bestDistance) {
-                bestDistance = centerDistance;
-                currentPage = pageNum;
-            }
         });
 
-        // If no page was technically visible (edge case), fallback to closest center.
-        if (!foundVisiblePage) {
-            // currentPage already holds closest-center fallback
+        const candidate = visibleBest ? visibleBest.pageNum : (fallbackBest ? fallbackBest.pageNum : currentPage);
+        if (candidate === currentPage) {
+            this.lastScrollCandidate = candidate;
+            this.lastScrollCandidateAt = 0;
+            return;
         }
 
-        if (currentPage !== this.state.viewerCurrentPage) {
-            this.state.viewerCurrentPage = currentPage;
-            this.updatePageIndicator();
-            this.setActiveThumbnail(currentPage);
+        const now = performance.now();
+        if (this.lastScrollCandidate !== candidate) {
+            this.lastScrollCandidate = candidate;
+            this.lastScrollCandidateAt = now;
+            return;
         }
+
+        const stableForMs = now - this.lastScrollCandidateAt;
+        const candidateIsStrong =
+            !visibleBest ||
+            !currentMetrics ||
+            (visibleBest.visibleRatio >= currentMetrics.visibleRatio + 0.12) ||
+            (visibleBest.centerDistance <= currentMetrics.centerDistance - 100) ||
+            (currentMetrics.visibleHeight <= 0);
+
+        // Avoid rapid page bouncing when two pages are both visible during fast scroll.
+        if (!candidateIsStrong && stableForMs < 85) return;
+
+        this.state.viewerCurrentPage = candidate;
+        this.updatePageIndicator();
+        this.setActiveThumbnail(candidate, false);
+
+        if (this.scrollSettleTimer) clearTimeout(this.scrollSettleTimer);
+        this.scrollSettleTimer = setTimeout(() => {
+            this.updateCurrentPageFromScroll();
+        }, 90);
     }
 
-    setActiveThumbnail(pageNum) {
+    isThumbnailVisible(thumbEl, listEl) {
+        if (!thumbEl || !listEl) return false;
+        const top = thumbEl.offsetTop;
+        const bottom = top + thumbEl.offsetHeight;
+        const viewTop = listEl.scrollTop;
+        const viewBottom = viewTop + listEl.clientHeight;
+        return top >= viewTop && bottom <= viewBottom;
+    }
+
+    setActiveThumbnail(pageNum, smooth = false) {
+        const list = document.getElementById('page-list');
+        let targetEl = null;
+
         document.querySelectorAll('.page-thumb').forEach(el => {
-            el.classList.remove('active');
-            if (parseInt(el.dataset.page) === pageNum) {
-                el.classList.add('active');
-                el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }
+            const isTarget = parseInt(el.dataset.page) === pageNum;
+            el.classList.toggle('active', isTarget);
+            if (isTarget) targetEl = el;
         });
+
+        if (!targetEl || !list) return;
+
+        const shouldAutoScroll = smooth || !this.isThumbnailVisible(targetEl, list);
+        if (!shouldAutoScroll) return;
+
+        const now = performance.now();
+        if (!smooth && (now - this.lastThumbnailAutoScrollAt) < 120) return;
+
+        this.lastThumbnailAutoScrollAt = now;
+        targetEl.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'nearest' });
     }
 
     goToPage(pageNum) {
         if (pageNum < 0 || pageNum >= this.state.viewerPageCount) return;
+
+        this.lockScrollSync(320);
+        this.lastScrollCandidate = pageNum;
+        this.lastScrollCandidateAt = 0;
 
         if (this.state.isReadingMode) {
             this.clara.reading.saveSession();
@@ -706,7 +816,7 @@ export class ViewerManager {
 
         this.state.viewerCurrentPage = pageNum;
         this.updatePageIndicator();
-        this.setActiveThumbnail(pageNum);
+        this.setActiveThumbnail(pageNum, true);
 
         // Save page position to database
         if (this.state.viewerDocId) {
@@ -714,11 +824,7 @@ export class ViewerManager {
         }
 
         // Check if we're in continuous mode
-        const targetPage = document.getElementById(`page-${pageNum}`);
-        if (targetPage) {
-            // In continuous mode, just scroll to the page
-            targetPage.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        } else {
+        if (!this.scrollToContinuousPage(pageNum, 0, 'smooth')) {
             // In single-page mode, load the page
             this.loadPage(pageNum);
         }
@@ -732,6 +838,7 @@ export class ViewerManager {
     updatePageIndicator() {
         const indicator = document.getElementById('page-indicator');
         indicator.textContent = `Page ${this.state.viewerCurrentPage + 1} / ${this.state.viewerPageCount}`;
+        this.clara.notes?.syncStudySheetPage?.();
 
         document.getElementById('btn-prev-page').disabled = this.state.viewerCurrentPage === 0;
         document.getElementById('btn-next-page').disabled = this.state.viewerCurrentPage >= this.state.viewerPageCount - 1;

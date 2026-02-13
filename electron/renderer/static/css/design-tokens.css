@@ -13,14 +13,14 @@
      ======================================== */
 
   /* Primary Colors - Brand Identity */
-  --clara-blue: #4A90E2;              /* Primary brand color - trust, intelligence, calm */
-  --clara-deep: #2D4059;              /* Dark accent - depth, professionalism */
-  --clara-light: #F0F4F8;             /* Soft background - cleanliness, spaciousness */
+  --clara-blue: #5D93D5;              /* Softer primary blue */
+  --clara-deep: #264362;              /* Ink navy for contrast */
+  --clara-light: #EEF5FF;             /* Soft study-paper blue */
 
   /* Secondary Colors - Functional */
-  --clara-purple: #8B7FD6;            /* Wisdom, learning features */
-  --clara-peach: #FFB4A2;             /* Approachable, friendly */
-  --clara-gold: #FFE5B4;              /* Highlight, insight, discovery */
+  --clara-purple: #7DAED8;            /* Sky accent (label kept for compatibility) */
+  --clara-peach: #F2CFAE;             /* Warm note tone */
+  --clara-gold: #F6DA7A;              /* Highlight, insight, discovery */
 
   /* Semantic Colors - System States */
   --clara-success: #4CAF50;           /* Achievement, positive */
@@ -42,48 +42,48 @@
      ======================================== */
 
   /* Background Colors */
-  --color-bg-primary: #FAFAF9;           /* Main canvas - slightly warm white */
-  --color-bg-secondary: #F0F4F8;         /* Clara Light - subtle panels */
-  --color-bg-tertiary: #E8EDF2;          /* Slightly darker panels */
+  --color-bg-primary: #F6FAFF;           /* Main canvas - airy paper */
+  --color-bg-secondary: #EEF5FF;         /* Clara Light - subtle panels */
+  --color-bg-tertiary: #E6F0FC;          /* Slightly darker panels */
   --color-bg-elevated: #FFFFFF;          /* Cards, modals - pure white */
   --color-bg-glass: rgba(255, 255, 255, 0.85);
 
   /* Background overlays */
-  --color-overlay-light: rgba(45, 64, 89, 0.02);
-  --color-overlay-medium: rgba(45, 64, 89, 0.04);
+  --color-overlay-light: rgba(38, 67, 98, 0.025);
+  --color-overlay-medium: rgba(38, 67, 98, 0.05);
   --color-overlay-dark: rgba(0, 0, 0, 0.5);
 
   /* Text Colors */
-  --color-text-primary: #2D4059;         /* Deep Clara - headers, primary text */
-  --color-text-secondary: #666666;       /* Secondary text */
-  --color-text-tertiary: #999999;        /* Muted text */
+  --color-text-primary: #264362;         /* Deep Clara - headers, primary text */
+  --color-text-secondary: #5D7692;       /* Secondary text */
+  --color-text-tertiary: #8A9DB3;        /* Muted text */
   --color-text-quaternary: #CCCCCC;      /* Very subtle */
   --color-text-inverse: #FFFFFF;         /* For dark backgrounds */
   --color-text-muted: #888888;           /* Between secondary and tertiary */
 
   /* Borders */
-  --color-border-subtle: rgba(224, 224, 224, 0.5);
-  --color-border-default: #E0E0E0;
-  --color-border-medium: #CCCCCC;
-  --color-border-strong: #999999;
+  --color-border-subtle: rgba(108, 139, 173, 0.2);
+  --color-border-default: #CDDBED;
+  --color-border-medium: #B8CBE2;
+  --color-border-strong: #94AFCB;
 
   /* Primary Accent - Clara Blue */
-  --color-primary: #4A90E2;              /* Clara Blue - main brand color */
-  --color-primary-hover: #3A7BC8;        /* Darker on hover */
-  --color-primary-light: #E3EAF2;        /* Light blue background */
-  --color-primary-subtle: rgba(74, 144, 226, 0.1);
+  --color-primary: #5D93D5;              /* Clara Blue - playful calm */
+  --color-primary-hover: #4C82C4;        /* Darker on hover */
+  --color-primary-light: #EAF2FF;        /* Light blue background */
+  --color-primary-subtle: rgba(93, 147, 213, 0.14);
 
   /* Secondary Accent - Clara Purple (Learning) */
-  --color-accent: #8B7FD6;               /* Purple for learning features */
-  --color-accent-hover: #7B6FC6;         /* Darker purple */
-  --color-accent-light: #F0EEFA;         /* Light purple background */
-  --color-accent-subtle: rgba(139, 127, 214, 0.1);
+  --color-accent: #7DAED8;               /* Sky accent */
+  --color-accent-hover: #6A9BC7;         /* Darker accent */
+  --color-accent-light: #EAF4FF;         /* Light accent background */
+  --color-accent-subtle: rgba(125, 174, 216, 0.18);
 
   /* Tertiary - Clara Peach (Friendly) */
-  --color-tertiary: #FFB4A2;             /* Peach for warmth */
-  --color-tertiary-hover: #FF9F8C;       /* Deeper peach */
-  --color-tertiary-light: #FFF5F2;       /* Light peach background */
-  --color-tertiary-subtle: rgba(255, 180, 162, 0.15);
+  --color-tertiary: #F2CFAE;             /* Warm sand for warmth */
+  --color-tertiary-hover: #E5BD96;       /* Deeper sand */
+  --color-tertiary-light: #FCF5EC;       /* Light sand background */
+  --color-tertiary-subtle: rgba(242, 207, 174, 0.22);
 
   /* Semantic Colors */
   --color-success: #4CAF50;              /* Green - achievement */
@@ -92,22 +92,22 @@
   --color-warning-light: #FFF3E0;
   --color-error: #F44336;                /* Red - error */
   --color-error-light: #FFEBEE;
-  --color-info: #4A90E2;                 /* Clara Blue for info */
-  --color-info-light: #E3EAF2;
+  --color-info: #5D93D5;                 /* Clara Blue for info */
+  --color-info-light: #EAF2FF;
 
   /* Reading Experience - Clara Gold Highlighting */
-  --color-highlight-active: rgba(255, 229, 180, 0.65);     /* Clara Gold - active word during TTS */
-  --color-highlight-active-glow: rgba(255, 229, 180, 0.4); /* Soft glow around active word */
+  --color-highlight-active: rgba(246, 218, 122, 0.76);     /* Clara Gold - active word during TTS */
+  --color-highlight-active-glow: rgba(246, 218, 122, 0.5); /* Soft glow around active word */
   --color-highlight-read: rgba(200, 200, 200, 0.2);        /* Gray for already-read words */
-  --color-highlight-hover: rgba(74, 144, 226, 0.15);       /* Clara Blue hover (dictionary) */
-  --color-highlight-selection: rgba(74, 144, 226, 0.2);    /* Selection color */
+  --color-highlight-hover: rgba(93, 147, 213, 0.18);       /* Clara Blue hover (dictionary) */
+  --color-highlight-selection: rgba(93, 147, 213, 0.24);   /* Selection color */
 
   /* Notes - Colorful Categories */
-  --color-note-default: #FFB4A2;         /* Peach - general notes */
+  --color-note-default: #F2CFAE;         /* Sand - general notes */
   --color-note-important: #F44336;       /* Red - important */
-  --color-note-reference: #4A90E2;       /* Blue - references */
+  --color-note-reference: #5D93D5;       /* Blue - references */
   --color-note-idea: #4CAF50;            /* Green - ideas */
-  --color-note-question: #8B7FD6;        /* Purple - questions */
+  --color-note-question: #7DAED8;        /* Sky - questions */
 
   /* ========================================
      REFINED TYPOGRAPHY
@@ -115,8 +115,8 @@
 
   /* Font Families */
   --font-reading: 'Charter', 'Iowan Old Style', 'Palatino', 'Georgia', 'Cambria', serif;
-  --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', system-ui, sans-serif;
-  --font-ui-text: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --font-ui: 'Nunito', 'Avenir Next', 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif;
+  --font-ui-text: 'Nunito', 'Nunito Sans', 'Avenir Next', 'Trebuchet MS', 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'SF Mono', 'Menlo', 'JetBrains Mono', 'Consolas', monospace;
 
   /* Font Sizes */

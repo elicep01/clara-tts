@@ -5,6 +5,7 @@ export class StudySessionManager {
     constructor(clara) {
         this.clara = clara;
         this.state = clara.state;
+        this.available = false;
         this.socket = null;
         this.sessionCode = null;
         this.isHost = false;
@@ -18,7 +19,15 @@ export class StudySessionManager {
         // Study session button in toolbar
         const studyBtn = document.getElementById('btn-study-session');
         if (studyBtn) {
-            studyBtn.addEventListener('click', () => this.showStudyModal());
+            if (!this.available) {
+                studyBtn.classList.add('disabled');
+                studyBtn.title = 'Study sessions coming soon';
+                studyBtn.addEventListener('click', () => {
+                    this.clara.ui.showToast('Study sessions are coming soon. Focus mode stays single-reader for now.');
+                });
+            } else {
+                studyBtn.addEventListener('click', () => this.showStudyModal());
+            }
         }
 
         // Modal close buttons
@@ -85,6 +94,10 @@ export class StudySessionManager {
     }
 
     showStudyModal() {
+        if (!this.available) {
+            this.clara.ui.showToast('Study sessions are coming soon. Focus mode stays single-reader for now.');
+            return;
+        }
         document.getElementById('study-modal').classList.remove('hidden');
         this.showStudyMenu();
     }

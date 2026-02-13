@@ -47,6 +47,12 @@
                     </svg>
                     <span class="notes-badge hidden" id="notes-badge">0</span>
                 </button>
+                <button class="nav-btn hidden" id="btn-study-mode" title="Enable Study Mode">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 6v12"/>
+                        <path d="M3 7.5C5.5 6 8 6 12 7.5c4-1.5 6.5-1.5 9 0V19c-2.5-1.5-5-1.5-9 0-4-1.5-6.5-1.5-9 0z"/>
+                    </svg>
+                </button>
                 <!-- Pomodoro Timer -->
                 <div class="pomodoro-container" id="pomodoro-container">
                     <button class="nav-btn pomodoro-btn" id="btn-pomodoro" title="Pomodoro Timer">
@@ -331,6 +337,31 @@
                                     </svg>
                                 </button>
                             </div>
+                            <div class="study-sheet hidden" id="study-sheet">
+                                <div class="study-sheet-title-row">
+                                    <h4>Study Sheet</h4>
+                                    <span class="study-sheet-page" id="study-sheet-page">Page 1</span>
+                                </div>
+                                <div class="study-sheet-actions">
+                                    <button class="study-action-btn" id="btn-study-link-selection">Link From Left</button>
+                                    <button class="study-action-btn" id="btn-study-link-paragraph">Link Paragraph</button>
+                                </div>
+                                <p class="study-sheet-hint" id="study-sheet-hint">Select text on the PDF, then click Link From Left. You can keep adding links while writing.</p>
+                                <div class="study-anchor-preview hidden" id="study-anchor-preview"></div>
+                                <div class="study-editor-toolbar">
+                                    <button class="study-format-btn" id="btn-study-h2">H2</button>
+                                    <button class="study-format-btn" id="btn-study-h3">H3</button>
+                                    <button class="study-format-btn" id="btn-study-bold"><strong>B</strong></button>
+                                    <button class="study-format-btn" id="btn-study-italic"><em>I</em></button>
+                                    <button class="study-format-btn" id="btn-study-bullet">• List</button>
+                                    <button class="study-format-btn" id="btn-study-highlight">Highlight</button>
+                                </div>
+                                <div id="study-note-editor" class="study-note-editor" contenteditable="true" spellcheck="true" data-placeholder="Write your notes like a paper... add headings, bullets, and ideas."></div>
+                                <div class="study-sheet-footer">
+                                    <button class="btn-secondary btn-small" id="btn-study-clear-draft">Clear</button>
+                                    <button class="btn-primary btn-small" id="btn-study-save-note">Save Linked Note</button>
+                                </div>
+                            </div>
                             <div class="notes-list" id="notes-list">
                                 <!-- Notes rendered dynamically -->
                             </div>
@@ -587,7 +618,13 @@
             <div class="modal-backdrop"></div>
             <div class="modal-content modal-settings">
                 <div class="settings-header">
-                    <h3>Settings</h3>
+                    <div class="settings-brand">
+                        <img src="assets/icons/clara-logo.svg" alt="Clara" class="settings-brand-logo" />
+                        <div class="settings-brand-text">
+                            <h3>Clara</h3>
+                            <p>Settings</p>
+                        </div>
+                    </div>
                     <button class="btn-close-settings" id="btn-close-settings">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <line x1="18" y1="6" x2="6" y2="18"/>
@@ -745,9 +782,7 @@
                     <div class="settings-tab-content" id="settings-tab-about">
                         <div class="about-section">
                             <div class="about-logo">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                                    <path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
-                                </svg>
+                                <img src="assets/icons/clara-logo.svg" alt="Clara logo" class="about-logo-img" />
                             </div>
                             <h3>Clara</h3>
                             <p class="about-tagline">Your Reading Companion</p>
@@ -985,6 +1020,18 @@
                 </svg>
                 Add note here
             </button>
+            <button class="pdf-context-item" data-action="add-sentence-note">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 7h16M4 12h12M4 17h16"/>
+                </svg>
+                Add sentence note
+            </button>
+            <button class="pdf-context-item" data-action="add-paragraph-note">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 6h16M4 10h16M4 14h16M4 18h12"/>
+                </svg>
+                Add paragraph note
+            </button>
         </div>
 
         <!-- Loading Overlay -->
@@ -1003,7 +1050,13 @@
     </div>
 
     <audio id="audio" hidden></audio>
-    <script src="electron-adapter.js"></script>
+    <script>
+        (function bootstrapAdapter() {
+            const script = document.createElement('script');
+            script.src = window.electronAPI ? 'electron-adapter.js' : 'mobile-adapter.js';
+            document.head.appendChild(script);
+        })();
+    </script>
     <script type="module" src="static/js/app.js"></script>
 </body>
 </html>
